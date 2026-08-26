@@ -208,6 +208,39 @@ def _sample_exfiltration(rng: random.Random, base: datetime) -> list[FlowEvent]:
     return events
 
 
+def _sample_udp_amplification(rng: random.Random, base: datetime) -> list[FlowEvent]:
+    return [
+        _event(
+            index,
+            base + timedelta(seconds=index * 0.1),
+            source_ip=f"198.51.100.{rng.randint(2, 254)}",
+            destination_ip="10.0.0.53",
+            destination_port=53,
+            protocol="UDP",
+            packets=rng.randint(40, 60),
+            bytes_sent=rng.randint(2500, 3500),
+        )
+        for index in range(12)
+    ]
+
+
+def _sample_slowloris(rng: random.Random, base: datetime) -> list[FlowEvent]:
+    return [
+        _event(
+            index,
+            base + timedelta(seconds=index * 3),
+            source_ip="10.0.0.81",
+            destination_ip="10.0.0.10",
+            destination_port=80,
+            protocol="TCP",
+            packets=2,
+            bytes_sent=128,
+            completed=False,
+        )
+        for index in range(10)
+    ]
+
+
 SAMPLE_GENERATORS = {
     "benign": _sample_benign,
     "ddos": _sample_ddos,
@@ -217,6 +250,8 @@ SAMPLE_GENERATORS = {
     "botnet_beaconing": _sample_beaconing,
     "encrypted_session_anomaly": _sample_encrypted,
     "data_exfiltration": _sample_exfiltration,
+    "udp_amplification": _sample_udp_amplification,
+    "slowloris": _sample_slowloris,
 }
 
 

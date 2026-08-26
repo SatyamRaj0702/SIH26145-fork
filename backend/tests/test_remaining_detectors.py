@@ -57,6 +57,57 @@ def test_encrypted_detector_never_requires_payload() -> None:
     assert all("payload" not in item.feature.lower() for item in alert[0].evidence)
 
 
+def test_udp_amplification_detector_uses_source_diversity() -> None:
+    detector = WindowedDetector(
+        DetectionConfig(udp_amp_packets_per_second=20, udp_amp_min_sources=1)
+    )
+    alerts = []
+    for index in range(6):
+        alerts.extend(
+            detector.process(
+                event(
+                    index,
+                    source_ip="198.51.100.2",
+                    destination_ip="10.0.0.53",
+                    destination_port=53,
+                    protocol="UDP",
+                    packets=50,
+                    bytes=3000,
+                )
+            )
+        )
+
+    # One alert per distinct source (cooldown is keyed by source IP).
+    assert len(alerts) == 1
+    assert alerts[0].threat_class == ThreatClass.UDP_AMPLIFICATION
+    assert alerts[0].severity == Severity.HIGH
+    assert any(item.feature == "udp_packets_per_second" for item in alerts[0].evidence)
+
+
+def test_slowloris_detector_uses_held_open_connections() -> None:
+    detector = WindowedDetector(DetectionConfig(slowloris_min_connections=5))
+    alerts = []
+    for index in range(8):
+        alerts.extend(
+            detector.process(
+                event(
+                    index * 3,
+                    destination_ip="10.0.0.10",
+                    destination_port=80,
+                    protocol="TCP",
+                    packets=2,
+                    bytes=128,
+                    connection_completed=False,
+                )
+            )
+        )
+
+    assert len(alerts) == 1
+    assert alerts[0].threat_class == ThreatClass.SLOWLORIS
+    assert alerts[0].severity == Severity.MEDIUM
+    assert any(item.feature == "held_open_connections" for item in alerts[0].evidence)
+
+
 def test_exfiltration_detector_uses_directional_bytes() -> None:
     detector = WindowedDetector(
         DetectionConfig(exfil_min_bytes=1000, exfil_ratio_threshold=10, exfil_window_seconds=30)

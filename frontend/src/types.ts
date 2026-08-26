@@ -7,6 +7,8 @@ export type ThreatClass =
   | "encrypted_session_anomaly"
   | "port_scanning"
   | "data_exfiltration"
+  | "udp_amplification"
+  | "slowloris"
   | "unknown_anomaly";
 
 export interface Evidence {

@@ -35,7 +35,7 @@
 - Add DNS tunnelling and DGA features.
 - Add beacon periodicity.
 - Add encrypted-session metadata features.
-- Add exfiltration and UDP amplification scenarios.
+- Add exfiltration, UDP amplification, and Slowloris scenarios (implemented).
 
 ## Phase 6 — ML and explanation
 

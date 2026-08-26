@@ -71,7 +71,7 @@ The executable slice includes explainable rules for SYN floods, port scanning, D
 
 A scikit-learn layer complements the rules. Training runs fully locally on synthetic windows and never touches payloads or the network:
 
-- **Random Forest classifier** over the seven threat classes plus benign traffic.
+- **Random Forest classifier** over the nine threat classes plus benign traffic.
 - **Isolation Forest anomaly detector** trained on benign windows only.
 - 15 window-level metadata features (rates, ratios, entropy, periodicity, byte asymmetry, TLS metadata).
 - Artifacts saved as versioned files under `models/` (`threat_classifier.joblib`, `anomaly_detector.joblib`, `model_meta.json`).

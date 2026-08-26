@@ -44,6 +44,14 @@ class DetectionConfig:
     exfil_window_seconds: int = 30
     exfil_min_bytes: int = 100_000
     exfil_ratio_threshold: float = 10.0
+    udp_amp_window_seconds: int = 10
+    udp_amp_packets_per_second: float = 50.0
+    udp_amp_min_sources: int = 4
+    udp_amp_ports: tuple[int, ...] = (53, 123, 1900, 11211)
+    slowloris_window_seconds: int = 30
+    slowloris_min_connections: int = 8
+    slowloris_max_bytes_per_connection: int = 2000
+    slowloris_max_connections_per_second: float = 1.0
     alert_cooldown_seconds: int = 30
 
 
@@ -85,6 +93,8 @@ class WindowedDetector:
         alerts.extend(self._detect_beaconing(event, self._events, ml_result))
         alerts.extend(self._detect_encrypted_session(event, ml_result))
         alerts.extend(self._detect_exfiltration(event, self._events, ml_result))
+        alerts.extend(self._detect_udp_amplification(event, self._events, ml_result))
+        alerts.extend(self._detect_slowloris(event, self._events, ml_result))
         return alerts
 
     def _detect_syn_flood(self, event: FlowEvent, events: list[FlowEvent], ml_result: MLResult) -> list[Alert]:
@@ -228,6 +238,71 @@ class WindowedDetector:
             Evidence(feature="source_window_events", value=len(source_events), reason="The behavior was calculated from incremental flow metadata"),
         ]
         return [self._alert(event, ThreatClass.DATA_EXFILTRATION, Severity.HIGH, confidence, evidence, "exfiltration_v1", ml_result)]
+
+    def _detect_udp_amplification(self, event: FlowEvent, events: list[FlowEvent], ml_result: MLResult) -> list[Alert]:
+        """UDP reflection/amplification and spoofed-source floods."""
+        amp_events = [
+            item
+            for item in events
+            if item.protocol.upper() == "UDP"
+            and item.destination_port in self.config.udp_amp_ports
+            and item.timestamp >= event.timestamp - timedelta(seconds=self.config.udp_amp_window_seconds)
+        ]
+        if not amp_events:
+            return []
+        packet_rate = total_packets(amp_events) / max(self.config.udp_amp_window_seconds, 1)
+        sources = len({item.source_ip for item in amp_events})
+        triggered = (
+            packet_rate >= self.config.udp_amp_packets_per_second
+            and sources >= self.config.udp_amp_min_sources
+        )
+        if not triggered or self._already_alerted(event, ThreatClass.UDP_AMPLIFICATION):
+            return []
+        confidence = min(
+            0.98,
+            0.65 + 0.2 * min(packet_rate / max(self.config.udp_amp_packets_per_second, 1), 1.5) + 0.15 * min(sources / 10, 1),
+        )
+        evidence = [
+            Evidence(feature="udp_packets_per_second", value=round(packet_rate, 2), reason="UDP rate to amplification-prone ports exceeded the configured threshold"),
+            Evidence(feature="distinct_sources", value=sources, reason="Many distinct source IPs indicate spoofed or reflected traffic"),
+            Evidence(feature="amplification_ports", value=list(dict.fromkeys(item.destination_port for item in amp_events)), reason="Traffic targeted DNS/NTP/SSDP/memcached amplification ports"),
+        ]
+        return [self._alert(event, ThreatClass.UDP_AMPLIFICATION, Severity.HIGH, confidence, evidence, "udp_amplification_v1", ml_result)]
+
+    def _detect_slowloris(self, event: FlowEvent, events: list[FlowEvent], ml_result: MLResult) -> list[Alert]:
+        """Slow HTTP exhaustion: many held-open, incomplete connections."""
+        slow_events = [
+            item
+            for item in events
+            if item.protocol.upper() == "TCP"
+            and item.destination_port in (80, 443, 8080)
+            and item.connection_completed is False
+            and item.timestamp >= event.timestamp - timedelta(seconds=self.config.slowloris_window_seconds)
+        ]
+        if len(slow_events) < self.config.slowloris_min_connections:
+            return []
+        average_bytes = sum(item.bytes for item in slow_events) / len(slow_events)
+        span_seconds = max(
+            (max(item.timestamp for item in slow_events) - min(item.timestamp for item in slow_events)).total_seconds(),
+            0.5,
+        )
+        connection_rate = len(slow_events) / span_seconds
+        if average_bytes > self.config.slowloris_max_bytes_per_connection:
+            return []
+        # Slowloris exhausts servers by holding connections open slowly; a high
+        # arrival rate is a flood, not a slow-exhaustion pattern.
+        if connection_rate > self.config.slowloris_max_connections_per_second:
+            return []
+        if self._already_alerted(event, ThreatClass.SLOWLORIS):
+            return []
+        confidence = min(0.97, 0.65 + 0.2 * min(len(slow_events) / 15, 1) + 0.15 * (1 - min(average_bytes / self.config.slowloris_max_bytes_per_connection, 1)))
+        evidence = [
+            Evidence(feature="held_open_connections", value=len(slow_events), reason="Many connections were initiated but never completed in the observation window"),
+            Evidence(feature="average_bytes_per_connection", value=round(average_bytes, 1), reason="Connections carried very little data, consistent with slow exhaustion"),
+            Evidence(feature="connection_rate_per_second", value=round(connection_rate, 3), reason="Connections accumulated at a low rate, consistent with slow exhaustion rather than a flood"),
+            Evidence(feature="http_ports", value=[80, 443, 8080], reason="Connections targeted HTTP/HTTPS service ports"),
+        ]
+        return [self._alert(event, ThreatClass.SLOWLORIS, Severity.MEDIUM, confidence, evidence, "slowloris_v1", ml_result)]
 
     def _detect_port_scan(self, event: FlowEvent, events: list[FlowEvent], ml_result: MLResult) -> list[Alert]:
         source_events = [item for item in events if item.source_ip == event.source_ip]

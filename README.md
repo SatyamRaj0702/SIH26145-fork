@@ -22,7 +22,7 @@ The prototype simulates a secure monitoring enclave. It does not claim to implem
 
 ## Goals
 
-- Detect DDoS, botnet beaconing, DGA/DNS tunnelling, encrypted-session anomalies, reconnaissance, and data exfiltration.
+- Detect DDoS (SYN floods, UDP amplification, Slowloris), botnet beaconing, DGA/DNS tunnelling, encrypted-session anomalies, reconnaissance, and data exfiltration.
 - Process events incrementally with bounded latency.
 - Analyze TLS/QUIC using metadata only; never decrypt payloads.
 - Never probe, re-contact, block, or issue commands to the observed network.

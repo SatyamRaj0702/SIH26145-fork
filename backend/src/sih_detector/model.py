@@ -44,6 +44,8 @@ CLASS_LABELS = [
     "botnet_beaconing",
     "encrypted_session_anomaly",
     "data_exfiltration",
+    "udp_amplification",
+    "slowloris",
 ]
 
 LABEL_TO_THREAT = {

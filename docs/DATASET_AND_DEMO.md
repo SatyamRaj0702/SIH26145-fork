@@ -42,7 +42,7 @@ Expected evidence:
 
 ### Additional scenarios
 
-The prototype also includes port scanning, DGA, encrypted-session metadata anomalies, and exfiltration fixtures. UDP amplification remains a future detector because the current focus is a compact, repeatable laptop demo.
+The prototype also includes port scanning, DGA, encrypted-session metadata anomalies, exfiltration, UDP amplification, and Slowloris fixtures, so every threat category in the problem statement has a replayable demo scenario.
 
 ## Replay behavior
 

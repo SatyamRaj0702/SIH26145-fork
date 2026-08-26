@@ -15,6 +15,8 @@ class ThreatClass(StrEnum):
     ENCRYPTED_SESSION_ANOMALY = "encrypted_session_anomaly"
     PORT_SCANNING = "port_scanning"
     DATA_EXFILTRATION = "data_exfiltration"
+    UDP_AMPLIFICATION = "udp_amplification"
+    SLOWLORIS = "slowloris"
     UNKNOWN_ANOMALY = "unknown_anomaly"
 
 

@@ -54,7 +54,7 @@ def test_training_returns_usable_artifacts(tmp_path) -> None:
 
 def test_generated_dataset_has_all_classes() -> None:
     vectors, labels = generate_dataset(per_class=10, seed=3)
-    assert len(vectors) == len(labels) == 80
+    assert len(vectors) == len(labels) == 100
     assert set(labels) == {
         "benign",
         "ddos",
@@ -64,4 +64,6 @@ def test_generated_dataset_has_all_classes() -> None:
         "botnet_beaconing",
         "encrypted_session_anomaly",
         "data_exfiltration",
+        "udp_amplification",
+        "slowloris",
     }

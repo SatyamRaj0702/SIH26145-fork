@@ -49,7 +49,7 @@ Open `http://localhost:5173`.
 
 1. Open the dashboard.
 2. Confirm the `Realtime connected` indicator (and the `Appwrite connected` chip when Appwrite is configured).
-3. Select `syn_flood`, `port_scanning`, `dns_tunnelling`, `dga`, `beaconing`, `encrypted_session`, or `exfiltration`.
+3. Select `syn_flood`, `port_scanning`, `dns_tunnelling`, `dga`, `beaconing`, `encrypted_session`, `exfiltration`, `udp_amplification`, or `slowloris`.
 4. Choose a replay speed.
 5. Start replay.
 6. Watch event metrics and alerts update.
@@ -141,7 +141,7 @@ It is not required to run detection or the demo.
 An automated check exercises the full local demo against a live API and WebSocket stream:
 
 - Health, scenario discovery, and status fields (`model_status`, `appwrite_status`, `ollama_status`).
-- All seven fixtures replay and stream their expected threat class with valid evidence/confidence contracts.
+- All nine fixtures replay and stream their expected threat class with valid evidence/confidence contracts.
 - Concurrent replay starts are rejected (409) while a replay is running; unknown scenarios are rejected (404).
 - `/api/explain/{alert_id}` returns a template explanation when Ollama is offline.
 - The Vite dev proxy serves the dashboard and forwards `/api` and `/ws` to the API.
