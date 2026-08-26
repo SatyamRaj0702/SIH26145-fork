@@ -72,6 +72,7 @@ The live detection console shows scenario-driven replay controls, realtime metri
 | [Testing & benchmarks](docs/TESTING.md) | Test plan and measured throughput/latency |
 | [Roadmap](docs/ROADMAP.md) | What's done and what's next |
 | [Local demo guide](docs/LOCAL_DEMO.md) | Run it end-to-end |
+| [SIH submission](docs/SIH_SUBMISSION.md) | Problem → solution traceability for the hackathon |
 
 ## Stack
 

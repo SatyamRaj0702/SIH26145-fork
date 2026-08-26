@@ -64,6 +64,8 @@ Alerts are structured records intended for storage, realtime delivery, replay, a
 
 ```text
 ddos
+udp_amplification
+slowloris
 botnet_beaconing
 dga
 dns_tunnelling
