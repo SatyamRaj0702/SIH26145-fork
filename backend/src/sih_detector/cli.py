@@ -23,6 +23,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--per-class", type=int, default=200, help="Samples per class for training")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for training")
+    parser.add_argument("--eval-seed", type=int, default=None, help="Random seed for scenario-separated evaluation (defaults to seed + 1000)")
+    parser.add_argument("--eval-per-class", type=int, default=None, help="Evaluation samples per class (defaults to --per-class)")
     parser.add_argument(
         "--benchmark",
         action="store_true",
@@ -43,6 +45,8 @@ def main() -> None:
             output_dir=args.model_dir if args.model_dir is not None else "models",
             per_class=args.per_class,
             seed=args.seed,
+            eval_seed=args.eval_seed,
+            eval_per_class=args.eval_per_class,
         )
         print(json.dumps({key: value for key, value in result.items() if key != "classification_report"}))
         print(result["classification_report"])

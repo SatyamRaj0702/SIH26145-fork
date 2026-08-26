@@ -84,11 +84,32 @@ PYTHONPATH=backend/src python3 -m sih_detector.cli --train --per-class 250
 
 When artifacts exist, each alert carries an `ml_prediction` and `ml_anomaly_score` evidence item and `model_version` becomes `rules+ml-v1`. When they do not, the pipeline runs rules-only and still emits every alert. Detection results always remain the responsibility of the rules; the model score only adjusts confidence when it agrees with the rule finding.
 
+### Scenario-separated evaluation
+
+Evaluation is **scenario-separated**: the evaluation set is generated with a different random seed (`--eval-seed`, default `seed + 1000`) than the training set, so the model is measured on windows it never saw. The train command reports per-class precision/recall/F1 and overall accuracy on this held-out scenario set.
+
+Measured with `--per-class 250` (2,500 training + 2,500 evaluation windows):
+
+| Class | Precision | Recall | F1 |
+|---|---|---|---|
+| benign | 1.00 | 1.00 | 1.00 |
+| ddos | 1.00 | 1.00 | 1.00 |
+| port_scanning | 1.00 | 1.00 | 1.00 |
+| dns_tunnelling | 1.00 | 1.00 | 1.00 |
+| dga | 1.00 | 1.00 | 1.00 |
+| botnet_beaconing | 1.00 | 1.00 | 1.00 |
+| encrypted_session_anomaly | 1.00 | 1.00 | 1.00 |
+| data_exfiltration | 1.00 | 1.00 | 1.00 |
+| udp_amplification | 1.00 | 1.00 | 1.00 |
+| slowloris | 1.00 | 1.00 | 1.00 |
+
+**Honest interpretation:** the synthetic generators are intentionally cleanly separable (e.g. benign DNS entropy ≈ 0.7 vs DGA ≈ 3.4 vs tunnelling ≈ 4.2), so perfect scores demonstrate the *pipeline* and the evaluation methodology, not real-world performance. The per-class framework is in place; meaningful precision/recall values require labeled real or lab-generated traffic (the training data policy above).
+
 ## Model plan (next)
 
-- Scenario-separated evaluation to reduce leakage between train and test sets.
+- Scenario-separated evaluation to reduce leakage between train and test sets (implemented; see the measured table above).
 - Gradient Boosting comparison and calibration checks.
-- Per-class precision/recall tracking as fixtures grow.
+- Per-class precision/recall tracking with real or lab-generated traffic as fixtures grow.
 
 ## Confidence and severity
 

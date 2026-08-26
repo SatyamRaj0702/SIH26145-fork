@@ -52,6 +52,33 @@ def test_training_returns_usable_artifacts(tmp_path) -> None:
     assert ml_result.confidence >= 0.5
 
 
+def test_training_reports_per_class_metrics_on_separated_scenarios(tmp_path) -> None:
+    result = train_and_save(output_dir=tmp_path, per_class=15, seed=11, eval_seed=12, eval_per_class=10)
+    metrics = result["per_class_metrics"]
+    assert set(metrics) == set(
+        [
+            "benign",
+            "ddos",
+            "port_scanning",
+            "dns_tunnelling",
+            "dga",
+            "botnet_beaconing",
+            "encrypted_session_anomaly",
+            "data_exfiltration",
+            "udp_amplification",
+            "slowloris",
+        ]
+    )
+    for label, values in metrics.items():
+        assert 0 <= values["precision"] <= 1
+        assert 0 <= values["recall"] <= 1
+        assert 0 <= values["f1"] <= 1
+    assert result["eval_seed"] == 12
+    assert result["evaluated_on"] == 10 * 10
+    # Scenario-separated accuracy on separable synthetic classes stays strong.
+    assert result["accuracy"] >= 0.8
+
+
 def test_generated_dataset_has_all_classes() -> None:
     vectors, labels = generate_dataset(per_class=10, seed=3)
     assert len(vectors) == len(labels) == 100

@@ -31,6 +31,10 @@ Verify:
 
 Each fixture scenario should have expected detection outcomes. Include benign traffic to measure false positives. Keep scenario labels outside the inference payload.
 
+## ML evaluation
+
+Model training is evaluated **scenario-separated**: the evaluation set uses a different random seed than training (`--eval-seed`), so the model never sees training windows at evaluation time. Per-class precision/recall/F1 and accuracy are reported by the train command and stored in `model_meta.json`. See [docs/DETECTION_AND_ML.md](DETECTION_AND_ML.md) for the measured table and its synthetic-data caveat.
+
 ## Frontend tests
 
 Test alert table rendering, filters, severity chips, detail drawer/page, realtime subscription state, loading/error states, and replay controls using mocked backend data.

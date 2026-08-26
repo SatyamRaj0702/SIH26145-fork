@@ -58,20 +58,34 @@ def _event(
     )
 
 
+LABEL_POOL = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+
+def _random_label(rng: random.Random, length: int) -> str:
+    return "".join(rng.choice(LABEL_POOL) for _ in range(length))
+
+
 def _sample_benign(rng: random.Random, base: datetime) -> list[FlowEvent]:
     events: list[FlowEvent] = []
     for index in range(10):
+        port = rng.choice([443, 80, 53])
+        # Realistic contamination: some benign windows contain lookalike signals
+        # (long unique subdomains, several distinct ports) so classes are not
+        # trivially separable and precision/recall are meaningful.
+        dns_query = "www.example.test"
+        if rng.random() < 0.15:
+            dns_query = f"{_random_label(rng, 26)}.cdn.example.test"
         events.append(
             _event(
                 index,
                 base,
                 source_ip="10.0.0.8",
                 destination_ip="203.0.113.10",
-                destination_port=rng.choice([443, 80, 53]),
+                destination_port=port if rng.random() > 0.2 else rng.randint(1024, 65535),
                 packets=rng.randint(1, 3),
                 bytes_sent=rng.randint(64, 512),
                 completed=True,
-                dns_query="www.example.test" if rng.random() < 0.3 else None,
+                dns_query=dns_query if port == 53 else None,
                 tls_fingerprint="ja3-common-a" if rng.random() < 0.4 else None,
                 tls_version="TLS1.3" if rng.random() < 0.4 else None,
             )
@@ -92,7 +106,7 @@ def _sample_ddos(rng: random.Random, base: datetime) -> list[FlowEvent]:
                 packets=rng.randint(5, 25),
                 bytes_sent=rng.randint(40, 80),
                 syn=True,
-                completed=False,
+                completed=rng.random() < 0.1,  # a few completions add realism
             )
         )
     return events
@@ -106,17 +120,18 @@ def _sample_port_scan(rng: random.Random, base: datetime) -> list[FlowEvent]:
             source_ip="10.0.0.91",
             destination_ip="10.0.0.53",
             destination_port=rng.randint(1, 1024),
-            completed=False,
+            completed=rng.random() < 0.2,  # occasional successes
         )
         for index in range(10)
     ]
 
 
 def _sample_dns_tunnelling(rng: random.Random, base: datetime) -> list[FlowEvent]:
-    label_pool = "abcdefghijklmnopqrstuvwxyz0123456789"
     events: list[FlowEvent] = []
     for index in range(10):
-        label = "".join(rng.choice(label_pool) for _ in range(rng.randint(28, 42)))
+        label = _random_label(rng, rng.randint(28, 42))
+        if rng.random() < 0.2:  # some queries use shorter, less extreme labels
+            label = _random_label(rng, rng.randint(12, 18))
         events.append(
             _event(
                 index,
@@ -133,10 +148,11 @@ def _sample_dns_tunnelling(rng: random.Random, base: datetime) -> list[FlowEvent
 
 
 def _sample_dga(rng: random.Random, base: datetime) -> list[FlowEvent]:
-    label_pool = "abcdefghijklmnopqrstuvwxyz0123456789"
     events: list[FlowEvent] = []
     for index in range(10):
-        label = "".join(rng.choice(label_pool) for _ in range(rng.randint(12, 22)))
+        label = _random_label(rng, rng.randint(12, 22))
+        if rng.random() < 0.2:  # some dictionary-like labels for confusion
+            label = rng.choice(["login", "update", "verify", "secure", "account", "status"])
         events.append(
             _event(
                 index,
@@ -154,19 +170,23 @@ def _sample_dga(rng: random.Random, base: datetime) -> list[FlowEvent]:
 
 def _sample_beaconing(rng: random.Random, base: datetime) -> list[FlowEvent]:
     interval = rng.choice([20, 30, 45, 60])
-    return [
-        _event(
-            index,
-            base + timedelta(seconds=index * interval),
-            source_ip="10.0.0.31",
-            destination_ip="203.0.113.44",
-            destination_port=443,
-            packets=rng.randint(1, 2),
-            bytes_sent=64,
-            completed=True,
+    events: list[FlowEvent] = []
+    for index in range(8):
+        # jitter makes periodicity imperfect like a real C2 channel
+        jitter = rng.uniform(0.8, 1.2)
+        events.append(
+            _event(
+                index,
+                base + timedelta(seconds=index * interval * jitter),
+                source_ip="10.0.0.31",
+                destination_ip="203.0.113.44",
+                destination_port=443,
+                packets=rng.randint(1, 2),
+                bytes_sent=64,
+                completed=True,
+            )
         )
-        for index in range(8)
-    ]
+    return events
 
 
 def _sample_encrypted(rng: random.Random, base: datetime) -> list[FlowEvent]:
@@ -274,30 +294,57 @@ def train_and_save(
     output_dir: str | Path = DEFAULT_MODEL_DIR,
     per_class: int = 200,
     seed: int = 42,
+    eval_seed: int | None = None,
+    eval_per_class: int | None = None,
 ) -> dict[str, object]:
-    """Train classifier and anomaly detector, save artifacts, and return metrics."""
+    """Train classifier and anomaly detector, save artifacts, and return metrics.
+
+    Evaluation is scenario-separated: the evaluation set is generated with a
+    different random seed (``eval_seed``) than the training set, so the model
+    is measured against windows it never saw during training. No train/test
+    split of the same generated windows is used.
+    """
     try:
         from sklearn.ensemble import IsolationForest, RandomForestClassifier
-        from sklearn.metrics import accuracy_score, classification_report
-        from sklearn.model_selection import train_test_split
+        from sklearn.metrics import (
+            accuracy_score,
+            classification_report,
+            precision_recall_fscore_support,
+        )
     except ImportError as exc:
         raise RuntimeError(
             "scikit-learn is not installed. Install it with: python -m pip install -e 'backend[ml]'"
         ) from exc
 
-    vectors, labels = generate_dataset(per_class=per_class, seed=seed)
-    train_vectors, test_vectors, train_labels, test_labels = train_test_split(
-        vectors, labels, test_size=0.25, random_state=seed, stratify=labels
-    )
+    if eval_seed is None:
+        eval_seed = seed + 1000  # disjoint scenario family by default
+    if eval_per_class is None:
+        eval_per_class = per_class
+
+    train_vectors, train_labels = generate_dataset(per_class=per_class, seed=seed)
+    eval_vectors, eval_labels = generate_dataset(per_class=eval_per_class, seed=eval_seed)
 
     # n_jobs=1 keeps inference single-process: multiprocessing pools would be
     # spawned and torn down on every single-event prediction, dominating latency.
     # Tree counts are sized for fast per-alert inference on a laptop.
     classifier = RandomForestClassifier(n_estimators=40, max_depth=12, random_state=seed, n_jobs=1)
     classifier.fit(train_vectors, train_labels)
-    predictions = classifier.predict(test_vectors)
-    accuracy = float(accuracy_score(test_labels, predictions))
-    report = classification_report(test_labels, predictions, zero_division=0)
+    predictions = classifier.predict(eval_vectors)
+    accuracy = float(accuracy_score(eval_labels, predictions))
+    report = classification_report(eval_labels, predictions, zero_division=0)
+
+    labels = sorted(set(eval_labels))
+    precision, recall, f1, _support = precision_recall_fscore_support(
+        eval_labels, predictions, labels=labels, zero_division=0
+    )
+    per_class_metrics = {
+        label: {
+            "precision": round(float(precision[index]), 4),
+            "recall": round(float(recall[index]), 4),
+            "f1": round(float(f1[index]), 4),
+        }
+        for index, label in enumerate(labels)
+    }
 
     benign_indices = [index for index, label in enumerate(train_labels) if label == "benign"]
     benign_vectors = [train_vectors[index] for index in benign_indices]
@@ -315,8 +362,11 @@ def train_and_save(
         "class_labels": CLASS_LABELS,
         "feature_names": FEATURE_NAMES,
         "samples_per_class": per_class,
-        "train_accuracy": round(accuracy, 4),
+        "eval_samples_per_class": eval_per_class,
         "seed": seed,
+        "eval_seed": eval_seed,
+        "eval_accuracy": round(accuracy, 4),
+        "per_class_metrics": per_class_metrics,
     }
     (output_dir / "model_meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
@@ -324,6 +374,9 @@ def train_and_save(
         "output_dir": str(output_dir),
         "accuracy": round(accuracy, 4),
         "classification_report": report,
+        "per_class_metrics": per_class_metrics,
         "trained_on": per_class * len(CLASS_LABELS),
+        "evaluated_on": eval_per_class * len(CLASS_LABELS),
+        "eval_seed": eval_seed,
         "version": meta["version"],
     }
