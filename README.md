@@ -2,7 +2,7 @@
 
 A reproducible Smart India Hackathon 2026 prototype for detecting cyber threats in unidirectional IP traffic using passive, read-only analysis.
 
-> **Project status:** Full local demo implemented and tested — detection engine, FastAPI replay API with WebSocket alerts, React/HeroUI dashboard, and seven threat scenarios. Appwrite persistence is implemented as an optional adapter.
+> **Project status:** Full local demo implemented and tested — detection engine, FastAPI replay API with WebSocket alerts, React/HeroUI dashboard, nine threat scenarios, local scikit-learn model layer, and benchmarked throughput/latency. Appwrite persistence and an optional Ollama explanation layer are implemented as adapters.
 
 ## What are we building?
 
@@ -51,7 +51,7 @@ The prototype simulates a secure monitoring enclave. It does not claim to implem
 | Detection engine | Python |
 | API/control plane | FastAPI |
 | Packet/flow replay | JSONL initially; PCAP adapter later |
-| Features and ML | Rule-based detectors now; NumPy, SciPy, scikit-learn planned for trained models |
+| Features and ML | Rule-based detectors plus a trained scikit-learn RandomForest layer (NumPy/SciPy features) |
 | Alert validation | Pydantic |
 | Application backend | Appwrite |
 | Frontend | React, TypeScript, Vite |
