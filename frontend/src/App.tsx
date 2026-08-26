@@ -29,6 +29,7 @@ import {
   AlertTriangle,
   ChevronDown,
   CircleStop,
+  Database,
   Gauge,
   Radar,
   RefreshCw,
@@ -46,6 +47,7 @@ import {
   YAxis,
 } from "recharts";
 import { getAlerts, getMetrics, getScenarios, socketUrl, startReplay, stopReplay } from "./api";
+import { appwriteConfigured, listStoredAlerts, subscribeAlerts } from "./appwrite";
 import type { Alert, Metrics, Severity, SocketMessage } from "./types";
 
 const initialMetrics: Metrics = {
@@ -85,9 +87,16 @@ function App() {
   const [speed, setSpeed] = useState("12");
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
   const [connected, setConnected] = useState(false);
+  const [appwriteReady, setAppwriteReady] = useState(appwriteConfigured);
+  const [appwriteError, setAppwriteError] = useState("");
   const [loading, setLoading] = useState(true);
   const [actionError, setActionError] = useState("");
   const [timeline, setTimeline] = useState<{ time: string; alerts: number }[]>([]);
+
+  const prependAlert = useCallback((alert: Alert) => {
+    setAlerts((current) => [alert, ...current.filter((item) => item.alert_id !== alert.alert_id)].slice(0, 100));
+    setTimeline((current) => [...current.slice(-11), { time: formatTime(alert.timestamp), alerts: 1 }]);
+  }, []);
 
   const loadInitialData = useCallback(async () => {
     try {
@@ -97,6 +106,17 @@ function App() {
       setMetrics(metricData);
       setAlerts(alertData);
       setTimeline(alertData.slice(0, 12).reverse().map((alert) => ({ time: formatTime(alert.timestamp), alerts: 1 })));
+      if (appwriteConfigured) {
+        try {
+          const stored = await listStoredAlerts(100);
+          if (stored.length > 0) {
+            setAlerts(stored);
+            setTimeline(stored.slice(0, 12).reverse().map((alert) => ({ time: formatTime(alert.timestamp), alerts: 1 })));
+          }
+        } catch (error) {
+          setAppwriteError(error instanceof Error ? error.message : "Unable to list Appwrite alerts");
+        }
+      }
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Unable to load the local detection service");
     } finally {
@@ -115,13 +135,22 @@ function App() {
       if (payload.type === "metrics") {
         setMetrics(payload.metrics);
       } else {
-        setAlerts((current) => [payload.alert, ...current.filter((item) => item.alert_id !== payload.alert.alert_id)].slice(0, 100));
+        prependAlert(payload.alert);
         setMetrics((current) => ({ ...current, alerts_generated: current.alerts_generated + 1 }));
-        setTimeline((current) => [...current.slice(-11), { time: formatTime(payload.alert.timestamp), alerts: 1 }]);
       }
     };
-    return () => socket.close();
-  }, [loadInitialData]);
+    const appwriteRealtime = subscribeAlerts(
+      (alert) => prependAlert(alert),
+      (message) => setAppwriteError(message),
+    );
+    if (appwriteConfigured) {
+      setAppwriteReady(Boolean(appwriteRealtime));
+    }
+    return () => {
+      socket.close();
+      appwriteRealtime?.unsubscribe();
+    };
+  }, [loadInitialData, prependAlert]);
 
   const counts = useMemo(() => alerts.reduce<Record<string, number>>((result, alert) => {
     result[alert.severity] = (result[alert.severity] ?? 0) + 1;
@@ -168,6 +197,11 @@ function App() {
             {connected ? <Wifi size={15} /> : <WifiOff size={15} />}
             {connected ? "Realtime connected" : "Reconnecting"}
           </span>
+          {appwriteConfigured && (
+            <Chip size="sm" color={appwriteReady ? "success" : "danger"} variant="flat" startContent={<Database size={13} />}>
+              Appwrite {appwriteReady ? "connected" : "offline"}
+            </Chip>
+          )}
         </div>
       </header>
 
@@ -196,6 +230,7 @@ function App() {
       </section>
 
       {actionError && <div className="error-banner"><AlertTriangle size={16} />{actionError}</div>}
+      {appwriteConfigured && appwriteError && <div className="error-banner"><AlertTriangle size={16} />Appwrite: {appwriteError}</div>}
 
       <section className="metric-grid">
         <MetricCard label="Events processed" value={metrics.processed_events.toLocaleString()} hint={`${metrics.events_per_second.toLocaleString()} events/sec`} icon={<Activity size={18} />} />
@@ -213,7 +248,7 @@ function App() {
           <div className="panel-heading"><div><span className="section-kicker">DISTRIBUTION</span><h2>Threat classes</h2></div></div>
           <div className="distribution-list">{Object.entries(metrics.threat_counts).length === 0 ? <div className="empty-state">No detections in the current replay.</div> : Object.entries(metrics.threat_counts).map(([threat, count]) => <div className="distribution-row" key={threat}><span>{humanThreat(threat)}</span><strong>{count}</strong></div>)}</div>
           <Divider className="divider" />
-          <div className="enclave-note"><ShieldCheck size={17} /><span>Local rules are authoritative{metrics.model_status?.available ? `; ${metrics.model_status.version} model scoring is active` : "; no ML model loaded (rules-only)"}. External AI APIs are not required.</span></div>
+          <div className="enclave-note"><ShieldCheck size={17} /><span>Local rules are authoritative{metrics.model_status?.available ? `; ${metrics.model_status.version} model scoring is active` : "; no ML model loaded (rules-only)"}.{metrics.appwrite_status?.enabled ? ` ${metrics.appwrite_status.persisted_count} alerts persisted to Appwrite.` : " Appwrite persistence is off."} External AI APIs are not required.</span></div>
         </CardBody></Card>
       </section>
 

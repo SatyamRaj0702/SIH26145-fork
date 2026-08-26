@@ -4,6 +4,8 @@ services:
     working_dir: /workspace
     volumes:
       - .:/workspace
+    env_file:
+      - .env
     command: >-
       sh -c "pip install -e 'backend[test]' &&
       uvicorn sih_detector.api:app --app-dir backend/src --host 0.0.0.0 --port 8000"
@@ -15,6 +17,8 @@ services:
     working_dir: /workspace/frontend
     volumes:
       - .:/workspace
+    env_file:
+      - .env
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
     ports:
       - "5173:5173"

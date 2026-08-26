@@ -14,7 +14,7 @@ WebSocket alert stream
 React + HeroUI dashboard
 ```
 
-Appwrite is optional. When configured, the API also persists alerts to an Appwrite collection. Detection and the dashboard do not depend on Appwrite for the local demo.
+Appwrite is optional. When configured, the API persists alerts to an Appwrite collection and the dashboard subscribes to Appwrite Realtime (deduplicated against the WebSocket stream). Detection and the dashboard do not depend on Appwrite for the local demo.
 
 ## Start with local processes
 
@@ -48,7 +48,7 @@ Open `http://localhost:5173`.
 ## Demonstration flow
 
 1. Open the dashboard.
-2. Confirm the `Realtime connected` indicator.
+2. Confirm the `Realtime connected` indicator (and the `Appwrite connected` chip when Appwrite is configured).
 3. Select `syn_flood`, `port_scanning`, `dns_tunnelling`, `dga`, `beaconing`, `encrypted_session`, or `exfiltration`.
 4. Choose a replay speed.
 5. Start replay.
@@ -79,15 +79,15 @@ PYTHONPATH=backend/src python3 -m sih_detector.cli --train --per-class 250
 
 Restart the API; the metrics endpoint reports `model_status.available: true`, alerts gain `ml_prediction` and `ml_anomaly_score` evidence, and the dashboard note updates to show the active model version.
 
-## Optional Appwrite
+## Optional Appwrite persistence and realtime
 
-Install the optional SDK and set the values in `.env`:
+Install the optional backend SDK and set the values in `.env`:
 
 ```bash
 python -m pip install -e 'backend[appwrite]'
 ```
 
-Required values:
+Backend values (persist alerts from the detection API):
 
 ```text
 APPWRITE_ENDPOINT
@@ -97,7 +97,22 @@ APPWRITE_ALERTS_COLLECTION_ID
 APPWRITE_API_KEY
 ```
 
-Create an alerts collection whose attributes can accept the JSON fields in [the alert schema](ALERT_SCHEMA.md). Keep Appwrite outside the simulated observed network path.
+Frontend values (dashboard realtime + history; the Vite dev proxy forwards `/v1` to the endpoint):
+
+```text
+VITE_APPWRITE_ENDPOINT
+VITE_APPWRITE_PROJECT_ID
+VITE_APPWRITE_DATABASE_ID
+VITE_APPWRITE_ALERTS_COLLECTION_ID
+```
+
+Create an alerts collection whose attributes can accept the JSON fields in [the alert schema](ALERT_SCHEMA.md). Alerts are created with `document_id = alert_id`, so `$id` matches the alert. Keep Appwrite outside the simulated observed network path.
+
+When Appwrite is enabled:
+
+- `/api/metrics` reports `appwrite_status` with `enabled` and `persisted_count`.
+- The dashboard shows an `Appwrite connected` chip, loads stored alerts on startup, and merges Appwrite Realtime events (deduplicated by `alert_id`).
+- Persistence failures are counted in `error_count` and shown as a banner; detection continues.
 
 ## Optional local LLM
 
@@ -108,4 +123,4 @@ The current dashboard uses deterministic evidence text. Qwen2.5-3B-Instruct thro
 - `Connection refused`: start the FastAPI process on port 8000.
 - No scenarios: run from the repository root so `data/fixtures` is found.
 - Realtime disconnected: confirm the Vite dev server is running and the API WebSocket endpoint is available.
-- Appwrite errors: unset the Appwrite variables to use local-only mode.
+- Appwrite errors: unset the Appwrite variables to use local-only mode, or check `APPWRITE_API_KEY`/collection permissions and confirm the collection attributes match the alert schema.

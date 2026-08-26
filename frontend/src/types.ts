@@ -45,6 +45,7 @@ export interface Metrics {
   error_count: number;
   last_error?: string;
   model_status?: { available: boolean; version: string };
+  appwrite_status?: { enabled: boolean; persisted_count: number; last_error?: string | null };
 }
 
 export type SocketMessage =

@@ -18,6 +18,8 @@ class AppwriteAlertSink:
         self.enabled = all(
             [self.endpoint, self.project_id, self.database_id, self.collection_id, self.api_key]
         )
+        self.persisted_count = 0
+        self.last_error: str | None = None
         self._databases: Any = None
         if self.enabled:
             try:
@@ -25,6 +27,7 @@ class AppwriteAlertSink:
                 from appwrite.services.databases import Databases
             except ImportError:
                 self.enabled = False
+                self.last_error = "appwrite SDK not installed; install backend[appwrite]"
                 return
 
             client = Client()
@@ -32,6 +35,13 @@ class AppwriteAlertSink:
             client.set_project(self.project_id)
             client.set_key(self.api_key)
             self._databases = Databases(client)
+
+    def status(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "persisted_count": self.persisted_count,
+            "last_error": self.last_error,
+        }
 
     def persist(self, alert: Alert) -> bool:
         if not self.enabled:
@@ -43,4 +53,5 @@ class AppwriteAlertSink:
             document_id=alert.alert_id,
             data=data,
         )
+        self.persisted_count += 1
         return True

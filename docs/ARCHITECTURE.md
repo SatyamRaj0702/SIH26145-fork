@@ -18,8 +18,8 @@ Synthetic traffic generator / fixture
        └── alert construction
               │
               ├── Appwrite Databases (persistence)
-              ├── Appwrite Realtime (delivery)
-              └── optional FastAPI control/metrics API
+              ├── Appwrite Realtime (dashboard delivery)
+              └── FastAPI control/metrics API + WebSocket stream
                               │
                               ▼
                  React + TypeScript dashboard
@@ -53,14 +53,14 @@ FastAPI exposes local control and metrics endpoints, starts/stops replay, serves
 
 ### Dashboard
 
-The React dashboard subscribes to new alerts, displays metrics and timelines, and provides alert investigation and replay controls. It does not make detection decisions.
+The React dashboard subscribes to new alerts over the local WebSocket stream and, when configured, over Appwrite Realtime (deduplicated by `alert_id`). It loads stored alerts from Appwrite on startup, displays metrics and timelines, and provides alert investigation and replay controls. It does not make detection decisions.
 
 ## Data flow guarantees
 
 1. Ingest is append-only/read-only from the detector's perspective.
 2. Detection operates on metadata and derived features.
 3. Alerts are generated without contacting sources or destinations.
-4. Persistence and dashboard delivery happen after detection.
+4. Persistence and dashboard delivery happen after detection; WebSocket delivery remains the primary stream and Appwrite Realtime is a deduplicated secondary.
 5. An Appwrite or LLM outage must not prevent local detection and local alert buffering.
 
 ## Failure handling

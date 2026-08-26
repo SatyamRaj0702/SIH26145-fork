@@ -25,10 +25,10 @@
 
 ## Phase 4 — Appwrite integration
 
-- Configure authentication and permissions.
-- Create alert and benchmark collections.
-- Persist alerts with batching/backpressure.
-- Subscribe to Appwrite Realtime from the dashboard.
+- Configure authentication and permissions (documented; collection setup is manual).
+- Create alert and benchmark collections (documented; collection setup is manual).
+- Persist alerts with batching/backpressure (implemented: optional sink, failure counted without blocking detection).
+- Subscribe to Appwrite Realtime from the dashboard (implemented: Appwrite Realtime merged with the WebSocket stream, deduplicated by `alert_id`).
 
 ## Phase 5 — Additional detection
 

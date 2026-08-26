@@ -62,6 +62,7 @@ class ReplayManager:
                 "threat_counts": {},
                 "error_count": 0,
                 "model_status": self.model_status,
+                "appwrite_status": self.appwrite_sink.status(),
             }
 
     def scenarios(self) -> list[str]:
