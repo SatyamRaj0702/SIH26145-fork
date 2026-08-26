@@ -20,6 +20,12 @@ Synthetic traffic → read-only replay → Python detection engine
 
 The prototype simulates a secure monitoring enclave. It does not claim to implement a physical data diode.
 
+## Dashboard
+
+![Passive Detection Console — live dashboard](docs/screenshots/dashboard.png)
+
+The live detection console shows scenario-driven replay controls, realtime metrics, a detection timeline, threat-class distribution, and a streaming alert table with severity, confidence, and supporting evidence for every detection.
+
 ## Goals
 
 - Detect DDoS (SYN floods, UDP amplification, Slowloris), botnet beaconing, DGA/DNS tunnelling, encrypted-session anomalies, reconnaissance, and data exfiltration.
