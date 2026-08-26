@@ -34,6 +34,7 @@ import {
   Radar,
   RefreshCw,
   ShieldCheck,
+  Sparkles,
   Wifi,
   WifiOff,
 } from "lucide-react";
@@ -134,6 +135,12 @@ function App() {
       const payload = JSON.parse(message.data) as SocketMessage;
       if (payload.type === "metrics") {
         setMetrics(payload.metrics);
+      } else if (payload.type === "explained") {
+        setAlerts((current) =>
+          current.map((alert) =>
+            alert.alert_id === payload.alert_id ? { ...alert, explanation: payload.explanation } : alert,
+          ),
+        );
       } else {
         prependAlert(payload.alert);
         setMetrics((current) => ({ ...current, alerts_generated: current.alerts_generated + 1 }));
@@ -202,6 +209,9 @@ function App() {
               Appwrite {appwriteReady ? "connected" : "offline"}
             </Chip>
           )}
+          <Chip size="sm" color={metrics.ollama_status?.available ? "success" : "default"} variant="flat" startContent={<Sparkles size={13} />}>
+            Ollama {metrics.ollama_status?.available ? metrics.ollama_status.model : "off"}
+          </Chip>
         </div>
       </header>
 
@@ -248,7 +258,7 @@ function App() {
           <div className="panel-heading"><div><span className="section-kicker">DISTRIBUTION</span><h2>Threat classes</h2></div></div>
           <div className="distribution-list">{Object.entries(metrics.threat_counts).length === 0 ? <div className="empty-state">No detections in the current replay.</div> : Object.entries(metrics.threat_counts).map(([threat, count]) => <div className="distribution-row" key={threat}><span>{humanThreat(threat)}</span><strong>{count}</strong></div>)}</div>
           <Divider className="divider" />
-          <div className="enclave-note"><ShieldCheck size={17} /><span>Local rules are authoritative{metrics.model_status?.available ? `; ${metrics.model_status.version} model scoring is active` : "; no ML model loaded (rules-only)"}.{metrics.appwrite_status?.enabled ? ` ${metrics.appwrite_status.persisted_count} alerts persisted to Appwrite.` : " Appwrite persistence is off."} External AI APIs are not required.</span></div>
+          <div className="enclave-note"><ShieldCheck size={17} /><span>Local rules are authoritative{metrics.model_status?.available ? `; ${metrics.model_status.version} model scoring is active` : "; no ML model loaded (rules-only)"}.{metrics.appwrite_status?.enabled ? ` ${metrics.appwrite_status.persisted_count} alerts persisted to Appwrite.` : " Appwrite persistence is off."}{metrics.ollama_status?.available ? " Local Ollama explanations are active." : " LLM explanations are off."} External AI APIs are not required.</span></div>
         </CardBody></Card>
       </section>
 
@@ -260,7 +270,7 @@ function App() {
         </Table>
       </section>
 
-      <Drawer isOpen={selectedAlert !== null} onOpenChange={(open) => !open && setSelectedAlert(null)} size="lg"><DrawerContent>{(onClose) => selectedAlert && <><DrawerHeader className="drawer-header"><div><span className="section-kicker">ALERT DETAILS</span><h2>{humanThreat(selectedAlert.threat_class)}</h2></div><Button isIconOnly variant="light" aria-label="Close alert details" onPress={onClose}>×</Button></DrawerHeader><DrawerBody><div className="detail-hero"><Chip color={severityColor[selectedAlert.severity]}>{selectedAlert.severity.toUpperCase()}</Chip><strong>{Math.round(selectedAlert.confidence * 100)}% confidence</strong><span>{selectedAlert.detector}</span></div><div className="detail-grid"><Detail label="Source" value={selectedAlert.source_ip} /><Detail label="Destination" value={selectedAlert.destination_ip} /><Detail label="Protocol" value={selectedAlert.protocol} /><Detail label="Flow ID" value={selectedAlert.flow_id} /></div><div className="evidence-heading"><span className="section-kicker">SUPPORTING EVIDENCE</span><h3>Why this was flagged</h3></div><div className="evidence-list">{selectedAlert.evidence.map((item) => <div className="evidence-item" key={item.feature}><div><strong>{item.feature.replaceAll("_", " ")}</strong><span>{item.reason}</span></div><code>{String(item.value)}</code></div>)}</div><div className="explanation-box"><span className="section-kicker">ANALYST EXPLANATION</span><p>{selectedAlert.explanation ?? "Deterministic evidence is available. Optional local LLM explanation is not enabled for this alert."}</p></div></DrawerBody></>}</DrawerContent></Drawer>
+      <Drawer isOpen={selectedAlert !== null} onOpenChange={(open) => !open && setSelectedAlert(null)} size="lg"><DrawerContent>{(onClose) => selectedAlert && <><DrawerHeader className="drawer-header"><div><span className="section-kicker">ALERT DETAILS</span><h2>{humanThreat(selectedAlert.threat_class)}</h2></div><Button isIconOnly variant="light" aria-label="Close alert details" onPress={onClose}>×</Button></DrawerHeader><DrawerBody><div className="detail-hero"><Chip color={severityColor[selectedAlert.severity]}>{selectedAlert.severity.toUpperCase()}</Chip><strong>{Math.round(selectedAlert.confidence * 100)}% confidence</strong><span>{selectedAlert.detector}</span></div><div className="detail-grid"><Detail label="Source" value={selectedAlert.source_ip} /><Detail label="Destination" value={selectedAlert.destination_ip} /><Detail label="Protocol" value={selectedAlert.protocol} /><Detail label="Flow ID" value={selectedAlert.flow_id} /></div><div className="evidence-heading"><span className="section-kicker">SUPPORTING EVIDENCE</span><h3>Why this was flagged</h3></div><div className="evidence-list">{selectedAlert.evidence.map((item) => <div className="evidence-item" key={item.feature}><div><strong>{item.feature.replaceAll("_", " ")}</strong><span>{item.reason}</span></div><code>{String(item.value)}</code></div>)}</div>          <div className="explanation-box"><span className="section-kicker">ANALYST EXPLANATION</span>{selectedAlert.explanation ? <p>{selectedAlert.explanation}</p> : metrics.ollama_status?.available ? <p className="explanation-pending"><Spinner size="sm" /> Generating explanation with the local model…</p> : <p>Deterministic evidence is available. Start Ollama and restart the API to enable local LLM explanations.</p>}</div></DrawerBody></>}</DrawerContent></Drawer>
     </main>
   );
 }

@@ -82,6 +82,7 @@ h3 { margin-top: 5px; font-size: 15px; }
 .evidence-item code { color: #7bd5ce; font-size: 12px; white-space: nowrap; }
 .explanation-box { margin-top: 22px; padding: 15px; border: 1px solid #29465a; background: #0e202d; border-radius: 6px; }
 .explanation-box p { margin-top: 8px; color: #a9bfce; font-size: 12px; line-height: 1.65; }
+.explanation-box .explanation-pending { display: flex; align-items: center; gap: 8px; color: #7fb3d3; }
 
 @media (max-width: 900px) {
   .topbar, .command-strip { padding-left: 20px; padding-right: 20px; }

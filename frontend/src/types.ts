@@ -46,8 +46,10 @@ export interface Metrics {
   last_error?: string;
   model_status?: { available: boolean; version: string };
   appwrite_status?: { enabled: boolean; persisted_count: number; last_error?: string | null };
+  ollama_status?: { enabled: boolean; model: string; available: boolean };
 }
 
 export type SocketMessage =
   | { type: "alert"; alert: Alert }
-  | { type: "metrics"; metrics: Metrics };
+  | { type: "metrics"; metrics: Metrics }
+  | { type: "explained"; alert_id: string; explanation: string; source: string };

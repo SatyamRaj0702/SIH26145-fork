@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 import time
 from collections import Counter, deque
 from pathlib import Path
 from typing import Any
+
+from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from .appwrite import AppwriteAlertSink
 from .detectors import DetectionConfig, WindowedDetector
+from .explain import check_ollama, generate_explanation
 from .model import load_scorer
 from .replay import read_events, replay
 from .schemas import Alert
@@ -46,6 +50,11 @@ class ReplayManager:
         self._subscribers: set[tuple[asyncio.AbstractEventLoop, asyncio.Queue[dict[str, Any]]]] = set()
         self.alerts: deque[Alert] = deque(maxlen=500)
         self.appwrite_sink = AppwriteAlertSink()
+        self.ollama_status: dict[str, Any] = {
+            "enabled": bool(os.getenv("OLLAMA_URL") or os.getenv("OLLAMA_MODEL")),
+            "model": os.getenv("OLLAMA_MODEL", "qwen2.5:3b-instruct"),
+            "available": False,
+        }
         self.reset_metrics()
 
     def reset_metrics(self) -> None:
@@ -63,6 +72,7 @@ class ReplayManager:
                 "error_count": 0,
                 "model_status": self.model_status,
                 "appwrite_status": self.appwrite_sink.status(),
+                "ollama_status": self.ollama_status,
             }
 
     def scenarios(self) -> list[str]:
@@ -148,6 +158,7 @@ class ReplayManager:
                     self.metrics["error_count"] += 1
                     self.metrics["last_error"] = f"Appwrite persistence failed: {exc}"
             self._broadcast({"type": "alert", "alert": alert.model_dump(mode="json")})
+            self._enqueue_explanation(alert)
 
         try:
             replay(read_events(path), handle_event, handle_alert)
@@ -163,6 +174,11 @@ class ReplayManager:
             self.metrics["status"] = status
             self.metrics["finished_at"] = time.time()
         self._broadcast({"type": "metrics", "metrics": self.metrics})
+
+    def _enqueue_explanation(self, alert: Alert) -> None:
+        """Queue the alert for asynchronous explanation without blocking the replay."""
+        for loop, _queue in list(self._subscribers):
+            loop.call_soon_threadsafe(explanation_queue.put_nowait, alert)
 
     def _broadcast(self, message: dict[str, Any]) -> None:
         for loop, queue in list(self._subscribers):
@@ -180,8 +196,19 @@ class ReplayManager:
                 pass
 
 
+explanation_queue: asyncio.Queue[Alert] = asyncio.Queue(maxsize=256)
+
 manager = ReplayManager()
-app = FastAPI(title="SIH26145 Detection API", version="0.1.0")
+
+
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Probe Ollama on startup and stop the explanation worker on shutdown."""
+    await startup()
+    yield
+    await shutdown()
+
+
+app = FastAPI(title="SIH26145 Detection API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -240,6 +267,71 @@ async def alert_socket(websocket: WebSocket) -> None:
         pass
     finally:
         manager.unsubscribe(subscription)
+
+
+@app.get("/api/explain/{alert_id}")
+async def get_explanation(alert_id: str) -> dict[str, Any]:
+    """Trigger and return an explanation for a single stored alert on demand."""
+    alert = next((item for item in manager.alerts if item.alert_id == alert_id), None)
+    if alert is None:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    if alert.explanation:
+        return {"alert_id": alert_id, "explanation": alert.explanation, "source": "ollama_or_cached"}
+    result = await generate_explanation(alert)
+    alert.explanation = result.explanation
+    manager._broadcast(
+        {
+            "type": "explained",
+            "alert_id": alert_id,
+            "explanation": result.explanation,
+            "source": result.source,
+        }
+    )
+    return {"alert_id": alert_id, "explanation": result.explanation, "source": result.source}
+
+
+explainer_task: asyncio.Task[None] | None = None
+
+
+async def startup() -> None:
+    """Probe Ollama and start the asynchronous explanation worker."""
+    global explainer_task
+    manager.ollama_status["available"] = await check_ollama()
+
+    async def on_explained(alert_id: str, result: Any) -> None:
+        explanation, source = result.explanation, result.source
+        with manager._lock:
+            for alert in manager.alerts:
+                if alert.alert_id == alert_id:
+                    alert.explanation = explanation
+                    break
+        manager._broadcast(
+            {
+                "type": "explained",
+                "alert_id": alert_id,
+                "explanation": explanation,
+                "source": source,
+            }
+        )
+
+    async def drain() -> None:
+        while True:
+            alert = await explanation_queue.get()
+            result = await generate_explanation(alert)
+            await on_explained(alert.alert_id, result)
+
+    explainer_task = asyncio.create_task(drain())
+
+
+async def shutdown() -> None:
+    global explainer_task
+    if explainer_task is not None:
+        explainer_task.cancel()
+        try:
+            await explainer_task
+        except asyncio.CancelledError:
+            pass
+        explainer_task = None
 
 
 def run() -> None:

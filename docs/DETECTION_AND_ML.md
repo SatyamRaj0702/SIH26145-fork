@@ -105,9 +105,23 @@ Severity is assigned from impact and confidence, with clear documented threshold
 
 Each alert includes the strongest contributing features and human-readable evidence. The dashboard must allow evaluators to inspect the evidence rather than seeing only a score.
 
-## Optional small LLM
+## Implemented optional small LLM
 
-Qwen2.5-3B-Instruct through Ollama may generate a concise explanation from sanitized alert JSON. It runs asynchronously after the alert is emitted. If unavailable, a template renderer produces the explanation.
+Qwen2.5-3B-Instruct through Ollama generates a concise explanation from sanitized alert JSON. It runs asynchronously after the alert is emitted over the same WebSocket as `explained` messages; the alert and its score appear immediately, and the explanation streams into the dashboard drawer when ready.
+
+Setup:
+
+```bash
+ollama pull qwen2.5:3b-instruct
+# optional overrides: OLLAMA_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT_SECONDS
+```
+
+Behavior:
+
+- On startup the API probes Ollama and reports `ollama_status` in `/api/metrics`; the dashboard shows an `Ollama` chip.
+- The model receives only the sanitized alert (class, severity, confidence, hosts, protocol, evidence). No payloads or credentials.
+- When Ollama is unreachable or times out, a deterministic template explanation is used; detection is never blocked.
+- `GET /api/explain/{alert_id}` generates an explanation on demand.
 
 The LLM must never:
 

@@ -51,6 +51,10 @@ Appwrite stores alert documents, manages authenticated users, stores optional re
 
 FastAPI exposes local control and metrics endpoints, starts/stops replay, serves historical alerts, and streams alerts over WebSocket. It does not probe or control observed network devices.
 
+### Explanation worker (optional)
+
+An async worker probes Ollama on startup and, for each emitted alert, requests a short plain-language explanation from a local model (default `qwen2.5:3b-instruct`). Explanations arrive asynchronously as `explained` WebSocket messages and update the alert drawer in place. Ollama outages fall back to a deterministic template; detection is never blocked.
+
 ### Dashboard
 
 The React dashboard subscribes to new alerts over the local WebSocket stream and, when configured, over Appwrite Realtime (deduplicated by `alert_id`). It loads stored alerts from Appwrite on startup, displays metrics and timelines, and provides alert investigation and replay controls. It does not make detection decisions.

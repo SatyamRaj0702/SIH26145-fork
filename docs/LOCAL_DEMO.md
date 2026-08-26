@@ -56,7 +56,8 @@ Open `http://localhost:5173`.
 7. Select an alert row to inspect evidence.
 8. Stop the replay if needed.
 9. If trained, point out the active `ml-v1` model status and the `ml_prediction`/`ml_anomaly_score` evidence on an alert.
-10. Explain that the input is a simulated one-way stream and the detector never sends a response.
+10. If Ollama is running, open an alert and watch the analyst explanation stream in.
+11. Explain that the input is a simulated one-way stream and the detector never sends a response.
 
 ## API endpoints
 
@@ -114,9 +115,26 @@ When Appwrite is enabled:
 - The dashboard shows an `Appwrite connected` chip, loads stored alerts on startup, and merges Appwrite Realtime events (deduplicated by `alert_id`).
 - Persistence failures are counted in `error_count` and shown as a banner; detection continues.
 
-## Optional local LLM
+## Optional local LLM explanations (Ollama)
 
-The current dashboard uses deterministic evidence text. Qwen2.5-3B-Instruct through Ollama can be added later as an asynchronous explanation worker. It is not required to run detection or the demo.
+Detection remains local and deterministic. Ollama only turns an already-generated structured alert into a short analyst paragraph.
+
+```bash
+# one-time model download
+ollama pull qwen2.5:3b-instruct
+# then start the API; the dashboard shows an Ollama chip when reachable
+```
+
+Defaults assume Ollama on the same host (`http://127.0.0.1:11434`, model `qwen2.5:3b-instruct`). Override with `OLLAMA_URL`, `OLLAMA_MODEL`, and `OLLAMA_TIMEOUT_SECONDS` in `.env`.
+
+Behavior:
+
+- Alerts are broadcast immediately; explanations arrive asynchronously over the same WebSocket as `explained` messages and update the drawer in place.
+- The drawer shows a spinner while an explanation is pending and a deterministic template whenever Ollama is unreachable or times out.
+- `GET /api/explain/{alert_id}` generates an explanation on demand.
+- The model receives only the sanitized structured alert (class, severity, confidence, hosts, protocol, evidence). No payloads, credentials, or instructions to take network actions.
+
+It is not required to run detection or the demo.
 
 ## Troubleshooting
 

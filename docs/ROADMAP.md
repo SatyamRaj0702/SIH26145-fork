@@ -42,8 +42,8 @@
 - Train and evaluate local scikit-learn models (implemented: Random Forest + Isolation Forest on 15 window features, saved as versioned artifacts).
 - Version model artifacts (implemented as `ml-v1`).
 - Add anomaly score to alerts (implemented as `ml_anomaly_score` evidence).
-- Optionally integrate Qwen2.5-3B-Instruct through Ollama asynchronously (still planned).
-- Keep deterministic fallback explanations (implemented: rules-only mode without artifacts).
+- Optionally integrate Qwen2.5-3B-Instruct through Ollama asynchronously (implemented: explanation worker, `explained` WebSocket messages, on-demand endpoint, dashboard drawer states).
+- Keep deterministic fallback explanations (implemented: rules-only mode without artifacts and template explanations when Ollama is offline).
 
 ## Phase 7 — Evaluation and presentation
 
