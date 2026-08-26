@@ -3,12 +3,15 @@ export type ThreatClass =
   | "ddos"
   | "botnet_beaconing"
   | "dns_tunnelling"
+  | "dga"
+  | "encrypted_session_anomaly"
   | "port_scanning"
+  | "data_exfiltration"
   | "unknown_anomaly";
 
 export interface Evidence {
   feature: string;
-  value: string | number | boolean;
+  value: string | number | boolean | number[];
   reason: string;
 }
 
@@ -41,6 +44,7 @@ export interface Metrics {
   threat_counts: Record<string, number>;
   error_count: number;
   last_error?: string;
+  model_status?: { available: boolean; version: string };
 }
 
 export type SocketMessage =

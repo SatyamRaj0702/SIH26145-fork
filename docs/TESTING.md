@@ -12,6 +12,9 @@ Test independently:
 - Each threat detector's threshold behavior.
 - Confidence and severity mapping.
 - Alert serialization.
+- Window feature vector extraction (order and types).
+- ML training reproducibility and artifact loading.
+- ML scoring agreement with rule findings.
 - LLM prompt sanitization and fallback explanation.
 
 ## Integration tests

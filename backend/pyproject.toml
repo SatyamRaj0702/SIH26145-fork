@@ -17,6 +17,9 @@ test = [
 appwrite = [
   "appwrite>=9,<12"
 ]
+ml = [
+  "scikit-learn>=1.4,<2"
+]
 
 [project.scripts]
 sih26145-api = "sih_detector.api:run"

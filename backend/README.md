@@ -27,6 +27,17 @@ PYTHONPATH=backend/src python3 -m sih_detector.cli data/fixtures/syn_flood.jsonl
 
 The command prints one JSON alert per detected incident and a final processed-event count. It does not send traffic or contact any observed host.
 
+## Optional local ML models
+
+Install the ML extra and train the scikit-learn models on synthetic windows:
+
+```bash
+python -m pip install -e 'backend[ml]'
+PYTHONPATH=backend/src python3 -m sih_detector.cli --train --per-class 250
+```
+
+Artifacts are written to `models/` (gitignored). When present, alerts include `ml_prediction` and `ml_anomaly_score` evidence and `model_version` becomes `rules+ml-v1`. Without artifacts the pipeline runs rules-only. `--model-dir` points the CLI at an alternative artifact directory.
+
 ## Current scope
 
 - JSONL normalized flow input.
@@ -40,5 +51,6 @@ The command prints one JSON alert per detected incident and a final processed-ev
 - Explainable data-exfiltration detection from directional byte asymmetry.
 - Local FastAPI API with replay controls and WebSocket alert stream.
 - Optional Appwrite persistence adapter; disabled without environment variables.
+- Optional local scikit-learn models (Random Forest + Isolation Forest) with rules-only fallback.
 - React dashboard is in `frontend/`.
 - External AI dependency is not required.

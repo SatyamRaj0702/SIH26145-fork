@@ -39,11 +39,11 @@
 
 ## Phase 6 — ML and explanation
 
-- Train and evaluate local scikit-learn models.
-- Version model artifacts.
-- Add anomaly score to alerts.
-- Optionally integrate Qwen2.5-3B-Instruct through Ollama asynchronously.
-- Keep deterministic fallback explanations.
+- Train and evaluate local scikit-learn models (implemented: Random Forest + Isolation Forest on 15 window features, saved as versioned artifacts).
+- Version model artifacts (implemented as `ml-v1`).
+- Add anomaly score to alerts (implemented as `ml_anomaly_score` evidence).
+- Optionally integrate Qwen2.5-3B-Instruct through Ollama asynchronously (still planned).
+- Keep deterministic fallback explanations (implemented: rules-only mode without artifacts).
 
 ## Phase 7 — Evaluation and presentation
 

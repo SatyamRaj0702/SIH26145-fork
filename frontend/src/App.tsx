@@ -213,7 +213,7 @@ function App() {
           <div className="panel-heading"><div><span className="section-kicker">DISTRIBUTION</span><h2>Threat classes</h2></div></div>
           <div className="distribution-list">{Object.entries(metrics.threat_counts).length === 0 ? <div className="empty-state">No detections in the current replay.</div> : Object.entries(metrics.threat_counts).map(([threat, count]) => <div className="distribution-row" key={threat}><span>{humanThreat(threat)}</span><strong>{count}</strong></div>)}</div>
           <Divider className="divider" />
-          <div className="enclave-note"><ShieldCheck size={17} /><span>Local rules and metadata features are authoritative; external AI APIs are not required.</span></div>
+          <div className="enclave-note"><ShieldCheck size={17} /><span>Local rules are authoritative{metrics.model_status?.available ? `; ${metrics.model_status.version} model scoring is active` : "; no ML model loaded (rules-only)"}. External AI APIs are not required.</span></div>
         </CardBody></Card>
       </section>
 

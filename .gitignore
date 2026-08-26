@@ -20,5 +20,6 @@ dist/
 coverage.xml
 htmlcov/
 models/*.joblib
+models/model_meta.json
 *.pcap
 *.pcapng

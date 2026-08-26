@@ -13,12 +13,14 @@ from pydantic import BaseModel, Field
 
 from .appwrite import AppwriteAlertSink
 from .detectors import DetectionConfig, WindowedDetector
+from .model import load_scorer
 from .replay import read_events, replay
 from .schemas import Alert
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_FIXTURE_DIR = PROJECT_ROOT / "data" / "fixtures"
+DEFAULT_MODEL_DIR = PROJECT_ROOT / "models"
 
 
 class ReplayRequest(BaseModel):
@@ -27,8 +29,17 @@ class ReplayRequest(BaseModel):
 
 
 class ReplayManager:
-    def __init__(self, fixture_dir: Path = DEFAULT_FIXTURE_DIR) -> None:
+    def __init__(
+        self,
+        fixture_dir: Path = DEFAULT_FIXTURE_DIR,
+        model_dir: Path = DEFAULT_MODEL_DIR,
+    ) -> None:
         self.fixture_dir = fixture_dir
+        self.scorer = load_scorer(model_dir)
+        self.model_status = {
+            "available": self.scorer is not None,
+            "version": self.scorer.version if self.scorer else "rules-only",
+        }
         self._lock = threading.RLock()
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
@@ -50,6 +61,7 @@ class ReplayManager:
                 "finished_at": None,
                 "threat_counts": {},
                 "error_count": 0,
+                "model_status": self.model_status,
             }
 
     def scenarios(self) -> list[str]:
@@ -95,7 +107,7 @@ class ReplayManager:
         self._subscribers.discard(subscription)
 
     def _run(self, path: Path, speed: float) -> None:
-        detector = WindowedDetector(DetectionConfig())
+        detector = WindowedDetector(DetectionConfig(), scorer=self.scorer)
         started = time.perf_counter()
         last_event_time = None
         threat_counts: Counter[str] = Counter()

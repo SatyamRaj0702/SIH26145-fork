@@ -14,12 +14,12 @@ from .features import (
     source_entropy,
     syn_ratio,
     tls_metadata_score,
-    total_bytes,
     total_packets,
     unique_destination_hosts,
     unique_destination_ports,
     unique_dns_query_ratio,
 )
+from .model import MLResult, ThreatScorer, score_window
 from .schemas import Alert, Evidence, FlowEvent, Severity, ThreatClass
 
 
@@ -50,8 +50,13 @@ class DetectionConfig:
 class WindowedDetector:
     """Detectors operate only on events already received through the read-only input."""
 
-    def __init__(self, config: DetectionConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: DetectionConfig | None = None,
+        scorer: ThreatScorer | None = None,
+    ) -> None:
         self.config = config or DetectionConfig()
+        self.scorer = scorer
         self._events: list[FlowEvent] = []
         self._last_alert: dict[tuple[str, ThreatClass], datetime] = {}
 
@@ -66,22 +71,23 @@ class WindowedDetector:
         cutoff = event.timestamp - timedelta(seconds=max_window)
         self._events = [item for item in self._events if item.timestamp >= cutoff]
 
+        ml_result = score_window(self.scorer, self._events)
         alerts: list[Alert] = []
         syn_events = [
             item
             for item in self._events
             if item.timestamp >= event.timestamp - timedelta(seconds=self.config.window_seconds)
         ]
-        alerts.extend(self._detect_syn_flood(event, syn_events))
-        alerts.extend(self._detect_port_scan(event, self._events))
-        alerts.extend(self._detect_dns_tunnelling(event, self._events))
-        alerts.extend(self._detect_dga(event, self._events))
-        alerts.extend(self._detect_beaconing(event, self._events))
-        alerts.extend(self._detect_encrypted_session(event))
-        alerts.extend(self._detect_exfiltration(event, self._events))
+        alerts.extend(self._detect_syn_flood(event, syn_events, ml_result))
+        alerts.extend(self._detect_port_scan(event, self._events, ml_result))
+        alerts.extend(self._detect_dns_tunnelling(event, self._events, ml_result))
+        alerts.extend(self._detect_dga(event, self._events, ml_result))
+        alerts.extend(self._detect_beaconing(event, self._events, ml_result))
+        alerts.extend(self._detect_encrypted_session(event, ml_result))
+        alerts.extend(self._detect_exfiltration(event, self._events, ml_result))
         return alerts
 
-    def _detect_syn_flood(self, event: FlowEvent, events: list[FlowEvent]) -> list[Alert]:
+    def _detect_syn_flood(self, event: FlowEvent, events: list[FlowEvent], ml_result: MLResult) -> list[Alert]:
         packet_rate = total_packets(events) / max(self.config.window_seconds, 1)
         ratio = syn_ratio(events)
         incomplete = incomplete_ratio(events)
@@ -103,9 +109,9 @@ class WindowedDetector:
             Evidence(feature="incomplete_ratio", value=round(incomplete, 3), reason="Most observed connections did not complete"),
             Evidence(feature="source_entropy", value=round(source_entropy(events), 3), reason="Source diversity was measured from passive flow metadata"),
         ]
-        return [self._alert(event, ThreatClass.DDOS, Severity.CRITICAL, confidence, evidence, "syn_flood_v1")]
+        return [self._alert(event, ThreatClass.DDOS, Severity.CRITICAL, confidence, evidence, "syn_flood_v1", ml_result)]
 
-    def _detect_dns_tunnelling(self, event: FlowEvent, events: list[FlowEvent]) -> list[Alert]:
+    def _detect_dns_tunnelling(self, event: FlowEvent, events: list[FlowEvent], ml_result: MLResult) -> list[Alert]:
         dns_events = [
             item
             for item in events
@@ -139,9 +145,9 @@ class WindowedDetector:
             Evidence(feature="average_query_length", value=round(average_length, 2), reason="Queries are unusually long"),
             Evidence(feature="unique_query_ratio", value=round(unique_ratio, 3), reason="Most observed queries are unique"),
         ]
-        return [self._alert(event, ThreatClass.DNS_TUNNELLING, Severity.HIGH, confidence, evidence, "dns_tunnelling_v1")]
+        return [self._alert(event, ThreatClass.DNS_TUNNELLING, Severity.HIGH, confidence, evidence, "dns_tunnelling_v1", ml_result)]
 
-    def _detect_dga(self, event: FlowEvent, events: list[FlowEvent]) -> list[Alert]:
+    def _detect_dga(self, event: FlowEvent, events: list[FlowEvent], ml_result: MLResult) -> list[Alert]:
         dns_events = [
             item
             for item in events
@@ -165,9 +171,9 @@ class WindowedDetector:
             Evidence(feature="unique_query_ratio", value=round(unique_ratio, 3), reason="The source queried mostly unique domains"),
             Evidence(feature="dga_query_count", value=len(dns_events), reason="Repeated suspicious DNS queries were observed in a bounded window"),
         ]
-        return [self._alert(event, ThreatClass.DGA, Severity.HIGH, confidence, evidence, "dga_v1")]
+        return [self._alert(event, ThreatClass.DGA, Severity.HIGH, confidence, evidence, "dga_v1", ml_result)]
 
-    def _detect_beaconing(self, event: FlowEvent, events: list[FlowEvent]) -> list[Alert]:
+    def _detect_beaconing(self, event: FlowEvent, events: list[FlowEvent], ml_result: MLResult) -> list[Alert]:
         beacon_events = [
             item
             for item in events
@@ -187,9 +193,9 @@ class WindowedDetector:
             Evidence(feature="recurring_destination", value=event.destination_ip, reason="The source repeatedly contacted the same destination"),
             Evidence(feature="beacon_event_count", value=len(beacon_events), reason="Repeated flow behavior was observed in a bounded window"),
         ]
-        return [self._alert(event, ThreatClass.BOTNET_BEACONING, Severity.HIGH, confidence, evidence, "beaconing_v1")]
+        return [self._alert(event, ThreatClass.BOTNET_BEACONING, Severity.HIGH, confidence, evidence, "beaconing_v1", ml_result)]
 
-    def _detect_encrypted_session(self, event: FlowEvent) -> list[Alert]:
+    def _detect_encrypted_session(self, event: FlowEvent, ml_result: MLResult) -> list[Alert]:
         score = tls_metadata_score(event)
         if score < self.config.encrypted_score_threshold:
             return []
@@ -200,9 +206,9 @@ class WindowedDetector:
             Evidence(feature="tls_fingerprint", value=event.tls_fingerprint or "unknown", reason="Fingerprint was evaluated without decrypting payload"),
             Evidence(feature="packet_size_signature", value=event.tls_packet_sizes, reason="Packet-size metadata was analyzed without payload access"),
         ]
-        return [self._alert(event, ThreatClass.ENCRYPTED_SESSION_ANOMALY, Severity.MEDIUM, min(0.95, 0.6 + score * 0.35), evidence, "encrypted_metadata_v1")]
+        return [self._alert(event, ThreatClass.ENCRYPTED_SESSION_ANOMALY, Severity.MEDIUM, min(0.95, 0.6 + score * 0.35), evidence, "encrypted_metadata_v1", ml_result)]
 
-    def _detect_exfiltration(self, event: FlowEvent, events: list[FlowEvent]) -> list[Alert]:
+    def _detect_exfiltration(self, event: FlowEvent, events: list[FlowEvent], ml_result: MLResult) -> list[Alert]:
         source_events = [
             item
             for item in events
@@ -221,9 +227,9 @@ class WindowedDetector:
             Evidence(feature="outbound_inbound_ratio", value=round(ratio, 3), reason="Outbound bytes were highly asymmetric against inbound bytes"),
             Evidence(feature="source_window_events", value=len(source_events), reason="The behavior was calculated from incremental flow metadata"),
         ]
-        return [self._alert(event, ThreatClass.DATA_EXFILTRATION, Severity.HIGH, confidence, evidence, "exfiltration_v1")]
+        return [self._alert(event, ThreatClass.DATA_EXFILTRATION, Severity.HIGH, confidence, evidence, "exfiltration_v1", ml_result)]
 
-    def _detect_port_scan(self, event: FlowEvent, events: list[FlowEvent]) -> list[Alert]:
+    def _detect_port_scan(self, event: FlowEvent, events: list[FlowEvent], ml_result: MLResult) -> list[Alert]:
         source_events = [item for item in events if item.source_ip == event.source_ip]
         destination_ports = unique_destination_ports(source_events)
         destination_hosts = unique_destination_hosts(source_events)
@@ -235,7 +241,7 @@ class WindowedDetector:
             Evidence(feature="unique_destination_ports", value=destination_ports, reason="One source contacted many destination ports in the observation window"),
             Evidence(feature="unique_destination_hosts", value=destination_hosts, reason="Destination fan-out was calculated without active probing"),
         ]
-        return [self._alert(event, ThreatClass.PORT_SCANNING, Severity.HIGH, confidence, evidence, "port_scan_v1")]
+        return [self._alert(event, ThreatClass.PORT_SCANNING, Severity.HIGH, confidence, evidence, "port_scan_v1", ml_result)]
 
     def _already_alerted(self, event: FlowEvent, threat_class: ThreatClass) -> bool:
         key = (event.source_ip, threat_class)
@@ -250,8 +256,27 @@ class WindowedDetector:
         confidence: float,
         evidence: list[Evidence],
         detector: str,
+        ml_result: MLResult | None = None,
     ) -> Alert:
         self._last_alert[(event.source_ip, threat_class)] = event.timestamp
+        model_version = "rules-v1"
+        if ml_result is not None and ml_result.available:
+            model_version = f"rules+{ml_result.model_version}"
+            evidence = [
+                *evidence,
+                Evidence(
+                    feature="ml_prediction",
+                    value=ml_result.predicted_class,
+                    reason=(
+                        "Local model prediction supports the rule finding"
+                        if ml_result.threat_class == threat_class
+                        else "Local model prediction; rule evidence remains authoritative"
+                    ),
+                ),
+                Evidence(feature="ml_anomaly_score", value=ml_result.anomaly_score, reason="Local anomaly score from passive window features"),
+            ]
+            if ml_result.threat_class == threat_class:
+                confidence = min(0.99, confidence * 0.6 + ml_result.confidence * 0.4)
         return Alert(
             alert_id=f"alert_{uuid4().hex}",
             timestamp=event.timestamp,
@@ -265,5 +290,5 @@ class WindowedDetector:
             window_seconds=max(self.config.port_scan_window_seconds, self.config.exfil_window_seconds),
             evidence=evidence,
             detector=detector,
-            model_version="rules-v1",
+            model_version=model_version,
         )

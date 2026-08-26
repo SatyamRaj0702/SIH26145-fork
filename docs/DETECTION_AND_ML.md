@@ -65,21 +65,34 @@ No encrypted payload is decrypted.
 
 ## Implemented rule baseline
 
-The executable slice includes explainable rules for SYN floods, port scanning, DNS tunnelling, DGA-like domains, botnet beaconing, encrypted-session metadata anomalies, and data exfiltration. These rules provide a measurable baseline before adding trained models.
+The executable slice includes explainable rules for SYN floods, port scanning, DNS tunnelling, DGA-like domains, botnet beaconing, encrypted-session metadata anomalies, and data exfiltration. These rules provide the deterministic, authoritative baseline.
 
-## Model plan
+## Implemented local ML layer
 
-Start with scikit-learn models on normalized window-level features:
+A scikit-learn layer complements the rules. Training runs fully locally on synthetic windows and never touches payloads or the network:
 
-- Isolation Forest for unsupervised anomaly scoring.
-- Random Forest or Gradient Boosting for labeled threat classification.
-- StandardScaler or robust scaling where appropriate.
+- **Random Forest classifier** over the seven threat classes plus benign traffic.
+- **Isolation Forest anomaly detector** trained on benign windows only.
+- 15 window-level metadata features (rates, ratios, entropy, periodicity, byte asymmetry, TLS metadata).
+- Artifacts saved as versioned files under `models/` (`threat_classifier.joblib`, `anomaly_detector.joblib`, `model_meta.json`).
 
-Models are trained locally on synthetic/lab-generated fixtures and saved as versioned artifacts. Evaluation must use scenario-separated data to reduce leakage between train and test sets.
+Train the models with:
+
+```bash
+PYTHONPATH=backend/src python3 -m sih_detector.cli --train --per-class 250
+```
+
+When artifacts exist, each alert carries an `ml_prediction` and `ml_anomaly_score` evidence item and `model_version` becomes `rules+ml-v1`. When they do not, the pipeline runs rules-only and still emits every alert. Detection results always remain the responsibility of the rules; the model score only adjusts confidence when it agrees with the rule finding.
+
+## Model plan (next)
+
+- Scenario-separated evaluation to reduce leakage between train and test sets.
+- Gradient Boosting comparison and calibration checks.
+- Per-class precision/recall tracking as fixtures grow.
 
 ## Confidence and severity
 
-Confidence is a calibrated or documented score combining detector evidence and model output. It must not be presented as a probability unless calibration is verified.
+Confidence is a documented score combining detector evidence and model output. When the local model agrees with the rule finding, confidence blends the rule score (60%) with the model score (40%), capped at 0.99. Confidence is not presented as a calibrated probability.
 
 Severity is assigned from impact and confidence, with clear documented thresholds. Example initial policy:
 

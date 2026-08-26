@@ -55,7 +55,8 @@ Open `http://localhost:5173`.
 6. Watch event metrics and alerts update.
 7. Select an alert row to inspect evidence.
 8. Stop the replay if needed.
-9. Explain that the input is a simulated one-way stream and the detector never sends a response.
+9. If trained, point out the active `ml-v1` model status and the `ml_prediction`/`ml_anomaly_score` evidence on an alert.
+10. Explain that the input is a simulated one-way stream and the detector never sends a response.
 
 ## API endpoints
 
@@ -66,6 +67,17 @@ Open `http://localhost:5173`.
 - `POST /api/replay/start`
 - `POST /api/replay/stop`
 - `WS /ws/alerts`
+
+## Optional local ML models
+
+The dashboard runs in rules-only mode without any setup. To enable model scoring:
+
+```bash
+python -m pip install -e 'backend[ml]'
+PYTHONPATH=backend/src python3 -m sih_detector.cli --train --per-class 250
+```
+
+Restart the API; the metrics endpoint reports `model_status.available: true`, alerts gain `ml_prediction` and `ml_anomaly_score` evidence, and the dashboard note updates to show the active model version.
 
 ## Optional Appwrite
 
