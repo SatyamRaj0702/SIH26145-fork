@@ -42,7 +42,7 @@ Expected evidence:
 
 ### Additional scenarios
 
-Add port scanning, DGA, encrypted-session anomalies, UDP amplification, and exfiltration after the three primary demo paths are polished.
+The prototype also includes port scanning, DGA, encrypted-session metadata anomalies, and exfiltration fixtures. UDP amplification remains a future detector because the current focus is a compact, repeatable laptop demo.
 
 ## Replay behavior
 
@@ -68,7 +68,7 @@ The same fixture and speed should produce repeatable results.
 6. Show the critical alert arriving live.
 7. Open its evidence and confidence details.
 8. Show the read-only architecture and no-response-path statement.
-9. Repeat with DNS tunnelling or beaconing.
+9. Repeat with DNS tunnelling, beaconing, DGA, encrypted-session metadata, or exfiltration.
 10. End with benchmark metrics and limitations.
 
 ## Evaluation metrics

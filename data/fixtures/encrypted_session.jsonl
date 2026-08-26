@@ -1,0 +1,1 @@
+{"timestamp":"2026-08-25T12:00:00.000Z","flow_id":"tls-001","source_ip":"10.0.0.51","destination_ip":"203.0.113.77","source_port":54001,"destination_port":443,"protocol":"TCP","packets":12,"bytes":1024,"direction":"outbound","connection_completed":true,"tls_fingerprint":"ja4-demo-rare","tls_version":"TLS1.1","tls_packet_sizes":[64,64,128,64,64]}

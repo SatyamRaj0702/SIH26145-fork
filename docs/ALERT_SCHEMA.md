@@ -66,7 +66,7 @@ Alerts are structured records intended for storage, realtime delivery, replay, a
 ddos
 botnet_beaconing
 dga
- dns_tunnelling
+dns_tunnelling
 encrypted_session_anomaly
 port_scanning
 data_exfiltration

@@ -15,8 +15,9 @@
 - Emit schema-compliant alerts.
 - Add unit tests.
 
-## Phase 3 — Dashboard
+## Phase 3 — Demo fixtures and dashboard
 
+- Add and validate deterministic DNS-tunnelling and beaconing fixtures.
 - Create React/Vite/TypeScript app.
 - Add HeroUI/Tailwind theme.
 - Build overview and live-alert views.

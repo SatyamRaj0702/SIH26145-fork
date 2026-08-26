@@ -47,9 +47,9 @@ A hybrid layer combines deterministic rules, statistical tests, and local scikit
 
 Appwrite stores alert documents, manages authenticated users, stores optional replay files, and broadcasts alert changes through Realtime. It is part of the application/control plane, not the observed network path.
 
-### Optional FastAPI service
+### FastAPI service
 
-FastAPI exposes local control and metrics endpoints, such as starting/stopping a replay, reading health, and retrieving benchmark metrics. It does not probe or control observed network devices.
+FastAPI exposes local control and metrics endpoints, starts/stops replay, serves historical alerts, and streams alerts over WebSocket. It does not probe or control observed network devices.
 
 ### Dashboard
 

@@ -72,7 +72,7 @@ The detector must:
 - Synthetic and lab-generated traffic scenarios.
 - JSONL streaming/replay as the initial input adapter.
 - Explainable rules and local classical ML.
-- Three polished demo scenarios: SYN flood, DNS tunnelling, and beaconing.
+- Six supported prototype scenarios: SYN flood, port scanning, DNS tunnelling/DGA, beaconing, encrypted-session metadata anomaly, and exfiltration.
 - Appwrite persistence and realtime updates.
 - React/HeroUI dashboard.
 - Metrics for throughput, latency, and detection quality.

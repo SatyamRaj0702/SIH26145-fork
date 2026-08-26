@@ -63,6 +63,10 @@ No encrypted payload is decrypted.
 - Long-lived session behavior.
 - Deviation from source baseline.
 
+## Implemented rule baseline
+
+The executable slice includes explainable rules for SYN floods, port scanning, DNS tunnelling, DGA-like domains, botnet beaconing, encrypted-session metadata anomalies, and data exfiltration. These rules provide a measurable baseline before adding trained models.
+
 ## Model plan
 
 Start with scikit-learn models on normalized window-level features:

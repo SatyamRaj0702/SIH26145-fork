@@ -2,7 +2,7 @@
 
 A reproducible Smart India Hackathon 2026 prototype for detecting cyber threats in unidirectional IP traffic using passive, read-only analysis.
 
-> **Project status:** Documentation and architecture phase.
+> **Project status:** Full local demo implemented and tested — detection engine, FastAPI replay API with WebSocket alerts, React/HeroUI dashboard, and seven threat scenarios. Appwrite persistence is implemented as an optional adapter.
 
 ## What are we building?
 
@@ -42,15 +42,16 @@ The prototype simulates a secure monitoring enclave. It does not claim to implem
 - [Security constraints](docs/SECURITY.md)
 - [Testing and benchmarks](docs/TESTING.md)
 - [Implementation roadmap](docs/ROADMAP.md)
+- [Local demo guide](docs/LOCAL_DEMO.md)
 
-## Proposed stack
+## Stack
 
 | Area | Technology |
 |---|---|
 | Detection engine | Python |
 | API/control plane | FastAPI |
 | Packet/flow replay | JSONL initially; PCAP adapter later |
-| Features and ML | NumPy, SciPy, scikit-learn |
+| Features and ML | Rule-based detectors now; NumPy, SciPy, scikit-learn planned for trained models |
 | Alert validation | Pydantic |
 | Application backend | Appwrite |
 | Frontend | React, TypeScript, Vite |
@@ -63,6 +64,33 @@ The prototype simulates a secure monitoring enclave. It does not claim to implem
 ## Demo principle
 
 The primary detection path remains local and deterministic/measurable. The optional small local LLM only explains already-generated structured alerts; it does not make or change detection decisions.
+
+## Run the local demo
+
+### Option A: local processes
+
+```bash
+python -m pip install -e 'backend[test]'
+uvicorn sih_detector.api:app --app-dir backend/src --reload
+```
+
+In a second terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`, select a scenario, and start replay. The dashboard uses the local API and WebSocket by default. No network capture, Appwrite credentials, or external AI API is required.
+
+### Option B: Docker Compose
+
+```bash
+docker compose up
+```
+
+The same dashboard is available at `http://localhost:5173`.
 
 ## License
 
