@@ -136,6 +136,19 @@ Behavior:
 
 It is not required to run detection or the demo.
 
+## Verified end-to-end
+
+An automated check exercises the full local demo against a live API and WebSocket stream:
+
+- Health, scenario discovery, and status fields (`model_status`, `appwrite_status`, `ollama_status`).
+- All seven fixtures replay and stream their expected threat class with valid evidence/confidence contracts.
+- Concurrent replay starts are rejected (409) while a replay is running; unknown scenarios are rejected (404).
+- `/api/explain/{alert_id}` returns a template explanation when Ollama is offline.
+- The Vite dev proxy serves the dashboard and forwards `/api` and `/ws` to the API.
+- The dashboard renders in a headless browser with the realtime indicator connected.
+
+Note: starting a replay clears the previously stored alert buffer (the buffer holds the current replay's alerts), which is expected behavior.
+
 ## Troubleshooting
 
 - `Connection refused`: start the FastAPI process on port 8000.
