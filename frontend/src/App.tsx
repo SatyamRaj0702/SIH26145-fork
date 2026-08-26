@@ -58,6 +58,7 @@ const initialMetrics: Metrics = {
   average_alert_latency_ms: 0,
   scenario: null,
   status: "idle",
+  running: false,
   started_at: null,
   finished_at: null,
   threat_counts: {},

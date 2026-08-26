@@ -66,6 +66,7 @@ class ReplayManager:
                 "average_alert_latency_ms": 0.0,
                 "scenario": None,
                 "status": "idle",
+                "running": False,
                 "started_at": None,
                 "finished_at": None,
                 "threat_counts": {},
@@ -91,7 +92,7 @@ class ReplayManager:
         self._stop.clear()
         self.alerts.clear()
         self.reset_metrics()
-        self.metrics.update({"scenario": scenario, "status": "running", "started_at": time.time()})
+        self.metrics.update({"scenario": scenario, "status": "running", "running": True, "started_at": time.time()})
         self._thread = threading.Thread(
             target=self._run,
             args=(path, speed),
@@ -107,6 +108,7 @@ class ReplayManager:
         with self._lock:
             if self.metrics["status"] == "running":
                 self.metrics["status"] = "stopped"
+                self.metrics["running"] = False
                 self.metrics["finished_at"] = time.time()
 
     def subscribe(self) -> tuple[asyncio.AbstractEventLoop, asyncio.Queue[dict[str, Any]]]:
@@ -172,6 +174,7 @@ class ReplayManager:
             elapsed = max(time.perf_counter() - started, 0.001)
             self.metrics["events_per_second"] = round(self.metrics["processed_events"] / elapsed, 2)
             self.metrics["status"] = status
+            self.metrics["running"] = False
             self.metrics["finished_at"] = time.time()
         self._broadcast({"type": "metrics", "metrics": self.metrics})
 

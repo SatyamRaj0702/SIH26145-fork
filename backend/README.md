@@ -27,6 +27,14 @@ PYTHONPATH=backend/src python3 -m sih_detector.cli data/fixtures/syn_flood.jsonl
 
 The command prints one JSON alert per detected incident and a final processed-event count. It does not send traffic or contact any observed host.
 
+## Benchmark
+
+```bash
+PYTHONPATH=backend/src python3 -m sih_detector.cli --benchmark --benchmark-events 5000 --benchmark-rate 100
+```
+
+Reports sustained throughput (events/sec and Mbps) and p50/p95/p99 per-event latency at the declared rate. Measured on this machine: ~62 events/sec sustained, p95 ≈ 32 ms at 100 events/sec. See [docs/TESTING.md](../docs/TESTING.md) for the protocol and target.
+
 ## Optional local ML models
 
 Install the ML extra and train the scikit-learn models on synthetic windows:

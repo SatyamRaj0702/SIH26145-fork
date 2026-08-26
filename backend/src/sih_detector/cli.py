@@ -23,6 +23,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--per-class", type=int, default=200, help="Samples per class for training")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for training")
+    parser.add_argument(
+        "--benchmark",
+        action="store_true",
+        help="Run the throughput/latency benchmark and exit",
+    )
+    parser.add_argument("--benchmark-events", type=int, default=20_000, help="Events for the benchmark")
+    parser.add_argument("--benchmark-rate", type=float, default=10_000.0, help="Declared sustained rate for latency measurement (events/sec)")
     return parser
 
 
@@ -41,8 +48,20 @@ def main() -> None:
         print(result["classification_report"])
         return
 
+    if args.benchmark:
+        from .benchmark import run_benchmark
+
+        result = run_benchmark(
+            event_count=args.benchmark_events,
+            declared_rate=args.benchmark_rate,
+            seed=args.seed,
+            model_dir=args.model_dir,
+        )
+        print(json.dumps(result, indent=2))
+        return
+
     if args.input is None:
-        parser.error("input is required unless --train is used")
+        parser.error("input is required unless --train or --benchmark is used")
     model_dir = args.model_dir if args.model_dir is not None else Path("models")
     scorer = load_scorer(model_dir)
     detector = WindowedDetector(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import uuid4
@@ -65,42 +66,108 @@ class WindowedDetector:
     ) -> None:
         self.config = config or DetectionConfig()
         self.scorer = scorer
-        self._events: list[FlowEvent] = []
+        self._events: deque[FlowEvent] = deque()  # full window, used for ML scoring
+        self._syn_events: deque[FlowEvent] = deque()
+        self._incomplete_events: deque[FlowEvent] = deque()
+        self._amp_events: deque[FlowEvent] = deque()
+        self._source_events: dict[str, deque[FlowEvent]] = {}
+        self._pair_events: dict[tuple[str, str], deque[FlowEvent]] = {}
+        self._packets_in_window = 0
+        self._dns_cache: dict[str, tuple[float, int]] = {}  # flow_id -> (entropy, length)
         self._last_alert: dict[tuple[str, ThreatClass], datetime] = {}
 
+    @staticmethod
+    def _prune(queue: deque[FlowEvent], cutoff: datetime) -> None:
+        while queue and queue[0].timestamp < cutoff:
+            queue.popleft()
+
+    def _source_queue(self, source_ip: str) -> deque[FlowEvent]:
+        queue = self._source_events.get(source_ip)
+        if queue is None:
+            queue = deque()
+            self._source_events[source_ip] = queue
+        return queue
+
+    def _pair_queue(self, source_ip: str, destination_ip: str) -> deque[FlowEvent]:
+        key = (source_ip, destination_ip)
+        queue = self._pair_events.get(key)
+        if queue is None:
+            queue = deque()
+            self._pair_events[key] = queue
+        return queue
+
     def process(self, event: FlowEvent) -> list[Alert]:
-        self._events.append(event)
         max_window = max(
             self.config.port_scan_window_seconds,
             self.config.dns_window_seconds,
             self.config.beacon_window_seconds,
             self.config.exfil_window_seconds,
+            self.config.udp_amp_window_seconds,
+            self.config.slowloris_window_seconds,
         )
-        cutoff = event.timestamp - timedelta(seconds=max_window)
-        self._events = [item for item in self._events if item.timestamp >= cutoff]
+        window_cutoff = event.timestamp - timedelta(seconds=max_window)
+        syn_cutoff = event.timestamp - timedelta(seconds=self.config.window_seconds)
+        amp_cutoff = event.timestamp - timedelta(seconds=self.config.udp_amp_window_seconds)
 
-        ml_result = score_window(self.scorer, self._events)
+        # Global window (used for ML scoring only).
+        self._events.append(event)
+        self._prune(self._events, window_cutoff)
+
+        # Cache per-event DNS features so window scans never recompute them.
+        if event.dns_query:
+            self._dns_cache[event.flow_id] = (
+                dns_label_entropy(event.dns_query),
+                dns_query_length(event.dns_query),
+                lexical_domain_score(event.dns_query),
+            )
+
+        # Per-type and per-key windows keep every detector's scan bounded.
+        if "SYN" in event.tcp_flags:
+            self._syn_events.append(event)
+            self._prune(self._syn_events, syn_cutoff)
+        if event.connection_completed is False:
+            self._incomplete_events.append(event)
+            self._prune(self._incomplete_events, syn_cutoff)
+        if event.protocol.upper() == "UDP" and event.destination_port in self.config.udp_amp_ports:
+            self._amp_events.append(event)
+            self._prune(self._amp_events, amp_cutoff)
+        self._packets_in_window += event.packets
+
+        source_queue = self._source_queue(event.source_ip)
+        source_queue.append(event)
+        self._prune(source_queue, window_cutoff)
+
+        pair_queue = self._pair_queue(event.source_ip, event.destination_ip)
+        pair_queue.append(event)
+        self._prune(pair_queue, window_cutoff)
+
+        # Run the deterministic rules first (they are authoritative). The ML
+        # layer is a per-alert enrichment, so the expensive model scoring only
+        # runs when at least one rule fires; the common no-alert path stays fast.
         alerts: list[Alert] = []
-        syn_events = [
-            item
-            for item in self._events
-            if item.timestamp >= event.timestamp - timedelta(seconds=self.config.window_seconds)
-        ]
-        alerts.extend(self._detect_syn_flood(event, syn_events, ml_result))
-        alerts.extend(self._detect_port_scan(event, self._events, ml_result))
-        alerts.extend(self._detect_dns_tunnelling(event, self._events, ml_result))
-        alerts.extend(self._detect_dga(event, self._events, ml_result))
-        alerts.extend(self._detect_beaconing(event, self._events, ml_result))
-        alerts.extend(self._detect_encrypted_session(event, ml_result))
-        alerts.extend(self._detect_exfiltration(event, self._events, ml_result))
-        alerts.extend(self._detect_udp_amplification(event, self._events, ml_result))
-        alerts.extend(self._detect_slowloris(event, self._events, ml_result))
-        return alerts
+        alerts.extend(self._detect_syn_flood(event, None))
+        alerts.extend(self._detect_port_scan(event, source_queue, None))
+        alerts.extend(self._detect_dns_tunnelling(event, source_queue, None))
+        alerts.extend(self._detect_dga(event, source_queue, None))
+        alerts.extend(self._detect_beaconing(event, pair_queue, None))
+        alerts.extend(self._detect_encrypted_session(event, None))
+        alerts.extend(self._detect_exfiltration(event, source_queue, None))
+        alerts.extend(self._detect_udp_amplification(event, None))
+        alerts.extend(self._detect_slowloris(event, source_queue, None))
 
-    def _detect_syn_flood(self, event: FlowEvent, events: list[FlowEvent], ml_result: MLResult) -> list[Alert]:
-        packet_rate = total_packets(events) / max(self.config.window_seconds, 1)
-        ratio = syn_ratio(events)
-        incomplete = incomplete_ratio(events)
+        if not alerts:
+            return []
+        # Score the window once per event and enrich all alerts from that run.
+        ml_result = score_window(self.scorer, list(self._events))
+        return [self._enrich_alert(alert, ml_result) for alert in alerts]
+
+    def _detect_syn_flood(self, event: FlowEvent, ml_result: MLResult) -> list[Alert]:
+        syn_events = list(self._syn_events)
+        if not syn_events:
+            return []
+        packet_rate = total_packets(syn_events) / max(self.config.window_seconds, 1)
+        ratio = syn_ratio(syn_events)
+        incomplete = incomplete_ratio(list(self._incomplete_events))
         triggered = (
             packet_rate >= self.config.syn_packets_per_second
             and ratio >= self.config.syn_ratio
@@ -117,24 +184,17 @@ class WindowedDetector:
             Evidence(feature="packets_per_second", value=round(packet_rate, 2), reason="Packet rate exceeded the configured flood threshold"),
             Evidence(feature="syn_ratio", value=round(ratio, 3), reason="Most observed events contain SYN flags"),
             Evidence(feature="incomplete_ratio", value=round(incomplete, 3), reason="Most observed connections did not complete"),
-            Evidence(feature="source_entropy", value=round(source_entropy(events), 3), reason="Source diversity was measured from passive flow metadata"),
+            Evidence(feature="source_entropy", value=round(source_entropy(syn_events), 3), reason="Source diversity was measured from passive flow metadata"),
         ]
         return [self._alert(event, ThreatClass.DDOS, Severity.CRITICAL, confidence, evidence, "syn_flood_v1", ml_result)]
 
-    def _detect_dns_tunnelling(self, event: FlowEvent, events: list[FlowEvent], ml_result: MLResult) -> list[Alert]:
-        dns_events = [
-            item
-            for item in events
-            if item.source_ip == event.source_ip
-            and item.dns_query
-            and item.timestamp >= event.timestamp - timedelta(seconds=self.config.dns_window_seconds)
-        ]
+    def _detect_dns_tunnelling(self, event: FlowEvent, events: deque[FlowEvent], ml_result: MLResult) -> list[Alert]:
+        dns_events = [item for item in events if item.dns_query]
         if len(dns_events) < self.config.dns_min_queries:
             return []
-        entropies = [dns_label_entropy(item.dns_query) for item in dns_events]
-        lengths = [dns_query_length(item.dns_query) for item in dns_events]
-        average_entropy = sum(entropies) / len(entropies)
-        average_length = sum(lengths) / len(lengths)
+        cached = [self._dns_cache.get(item.flow_id, (dns_label_entropy(item.dns_query), dns_query_length(item.dns_query), lexical_domain_score(item.dns_query))) for item in dns_events]
+        average_entropy = sum(entry[0] for entry in cached) / len(cached)
+        average_length = sum(entry[1] for entry in cached) / len(cached)
         unique_ratio = unique_dns_query_ratio(dns_events)
         triggered = (
             average_entropy >= self.config.dns_entropy_threshold
@@ -157,19 +217,14 @@ class WindowedDetector:
         ]
         return [self._alert(event, ThreatClass.DNS_TUNNELLING, Severity.HIGH, confidence, evidence, "dns_tunnelling_v1", ml_result)]
 
-    def _detect_dga(self, event: FlowEvent, events: list[FlowEvent], ml_result: MLResult) -> list[Alert]:
+    def _detect_dga(self, event: FlowEvent, events: deque[FlowEvent], ml_result: MLResult) -> list[Alert]:
         dns_events = [
-            item
-            for item in events
-            if item.source_ip == event.source_ip
-            and item.dns_query
-            and item.dns_record_type != "TXT"
-            and item.timestamp >= event.timestamp - timedelta(seconds=self.config.dns_window_seconds)
+            item for item in events if item.dns_query and item.dns_record_type != "TXT"
         ]
         if len(dns_events) < self.config.dga_min_queries:
             return []
-        scores = [lexical_domain_score(item.dns_query) for item in dns_events]
-        average_score = sum(scores) / len(scores)
+        scores = [self._dns_cache.get(item.flow_id, (dns_label_entropy(item.dns_query), dns_query_length(item.dns_query), lexical_domain_score(item.dns_query)))[2] for item in dns_events]
+        average_score = sum(scores) / len(scores) if scores else 0.0
         unique_ratio = unique_dns_query_ratio(dns_events)
         if average_score < self.config.dga_score_threshold or unique_ratio < 0.8:
             return []
@@ -183,15 +238,8 @@ class WindowedDetector:
         ]
         return [self._alert(event, ThreatClass.DGA, Severity.HIGH, confidence, evidence, "dga_v1", ml_result)]
 
-    def _detect_beaconing(self, event: FlowEvent, events: list[FlowEvent], ml_result: MLResult) -> list[Alert]:
-        beacon_events = [
-            item
-            for item in events
-            if item.source_ip == event.source_ip
-            and item.destination_ip == event.destination_ip
-            and item.connection_completed is True
-            and item.timestamp >= event.timestamp - timedelta(seconds=self.config.beacon_window_seconds)
-        ]
+    def _detect_beaconing(self, event: FlowEvent, events: deque[FlowEvent], ml_result: MLResult) -> list[Alert]:
+        beacon_events = [item for item in events if item.connection_completed is True]
         score = periodicity_score(beacon_events)
         if len(beacon_events) < self.config.beacon_min_events or score < self.config.beacon_periodicity_threshold:
             return []
@@ -218,13 +266,8 @@ class WindowedDetector:
         ]
         return [self._alert(event, ThreatClass.ENCRYPTED_SESSION_ANOMALY, Severity.MEDIUM, min(0.95, 0.6 + score * 0.35), evidence, "encrypted_metadata_v1", ml_result)]
 
-    def _detect_exfiltration(self, event: FlowEvent, events: list[FlowEvent], ml_result: MLResult) -> list[Alert]:
-        source_events = [
-            item
-            for item in events
-            if item.source_ip == event.source_ip
-            and item.timestamp >= event.timestamp - timedelta(seconds=self.config.exfil_window_seconds)
-        ]
+    def _detect_exfiltration(self, event: FlowEvent, events: deque[FlowEvent], ml_result: MLResult) -> list[Alert]:
+        source_events = list(events)
         bytes_sent = sum(item.bytes for item in source_events if item.direction == "outbound")
         ratio = outbound_ratio(source_events)
         if bytes_sent < self.config.exfil_min_bytes or ratio < self.config.exfil_ratio_threshold:
@@ -239,15 +282,9 @@ class WindowedDetector:
         ]
         return [self._alert(event, ThreatClass.DATA_EXFILTRATION, Severity.HIGH, confidence, evidence, "exfiltration_v1", ml_result)]
 
-    def _detect_udp_amplification(self, event: FlowEvent, events: list[FlowEvent], ml_result: MLResult) -> list[Alert]:
+    def _detect_udp_amplification(self, event: FlowEvent, ml_result: MLResult) -> list[Alert]:
         """UDP reflection/amplification and spoofed-source floods."""
-        amp_events = [
-            item
-            for item in events
-            if item.protocol.upper() == "UDP"
-            and item.destination_port in self.config.udp_amp_ports
-            and item.timestamp >= event.timestamp - timedelta(seconds=self.config.udp_amp_window_seconds)
-        ]
+        amp_events = list(self._amp_events)
         if not amp_events:
             return []
         packet_rate = total_packets(amp_events) / max(self.config.udp_amp_window_seconds, 1)
@@ -269,7 +306,7 @@ class WindowedDetector:
         ]
         return [self._alert(event, ThreatClass.UDP_AMPLIFICATION, Severity.HIGH, confidence, evidence, "udp_amplification_v1", ml_result)]
 
-    def _detect_slowloris(self, event: FlowEvent, events: list[FlowEvent], ml_result: MLResult) -> list[Alert]:
+    def _detect_slowloris(self, event: FlowEvent, events: deque[FlowEvent], ml_result: MLResult) -> list[Alert]:
         """Slow HTTP exhaustion: many held-open, incomplete connections."""
         slow_events = [
             item
@@ -277,7 +314,6 @@ class WindowedDetector:
             if item.protocol.upper() == "TCP"
             and item.destination_port in (80, 443, 8080)
             and item.connection_completed is False
-            and item.timestamp >= event.timestamp - timedelta(seconds=self.config.slowloris_window_seconds)
         ]
         if len(slow_events) < self.config.slowloris_min_connections:
             return []
@@ -304,8 +340,8 @@ class WindowedDetector:
         ]
         return [self._alert(event, ThreatClass.SLOWLORIS, Severity.MEDIUM, confidence, evidence, "slowloris_v1", ml_result)]
 
-    def _detect_port_scan(self, event: FlowEvent, events: list[FlowEvent], ml_result: MLResult) -> list[Alert]:
-        source_events = [item for item in events if item.source_ip == event.source_ip]
+    def _detect_port_scan(self, event: FlowEvent, events: deque[FlowEvent], ml_result: MLResult) -> list[Alert]:
+        source_events = list(events)
         destination_ports = unique_destination_ports(source_events)
         destination_hosts = unique_destination_hosts(source_events)
         if destination_ports < self.config.port_scan_unique_ports or self._already_alerted(event, ThreatClass.PORT_SCANNING):
@@ -334,6 +370,46 @@ class WindowedDetector:
         ml_result: MLResult | None = None,
     ) -> Alert:
         self._last_alert[(event.source_ip, threat_class)] = event.timestamp
+        return self._build_alert(
+            f"alert_{uuid4().hex}", event, threat_class, severity, confidence, evidence, detector, ml_result
+        )
+
+    def _enrich_alert(self, alert: Alert, ml_result: MLResult) -> Alert:
+        """Rebuild a rule alert with ML evidence and confidence, preserving its id."""
+        return self._build_alert(
+            alert.alert_id,
+            FlowEvent.model_validate(
+                {
+                    "timestamp": alert.timestamp,
+                    "flow_id": alert.flow_id,
+                    "source_ip": alert.source_ip,
+                    "destination_ip": alert.destination_ip,
+                    "source_port": 0,
+                    "destination_port": 0,
+                    "protocol": alert.protocol,
+                    "packets": 0,
+                    "bytes": 0,
+                }
+            ),
+            ThreatClass(alert.threat_class),
+            Severity(alert.severity),
+            alert.confidence,
+            alert.evidence,
+            alert.detector,
+            ml_result,
+        )
+
+    def _build_alert(
+        self,
+        alert_id: str,
+        event: FlowEvent,
+        threat_class: ThreatClass,
+        severity: Severity,
+        confidence: float,
+        evidence: list[Evidence],
+        detector: str,
+        ml_result: MLResult | None,
+    ) -> Alert:
         model_version = "rules-v1"
         if ml_result is not None and ml_result.available:
             model_version = f"rules+{ml_result.model_version}"
@@ -353,7 +429,7 @@ class WindowedDetector:
             if ml_result.threat_class == threat_class:
                 confidence = min(0.99, confidence * 0.6 + ml_result.confidence * 0.4)
         return Alert(
-            alert_id=f"alert_{uuid4().hex}",
+            alert_id=alert_id,
             timestamp=event.timestamp,
             flow_id=event.flow_id,
             threat_class=threat_class,

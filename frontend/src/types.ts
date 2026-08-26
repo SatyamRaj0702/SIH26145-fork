@@ -41,6 +41,7 @@ export interface Metrics {
   average_alert_latency_ms: number;
   scenario: string | null;
   status: "idle" | "running" | "completed" | "stopped" | "error";
+  running: boolean;
   started_at: number | null;
   finished_at: number | null;
   threat_counts: Record<string, number>;

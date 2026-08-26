@@ -290,7 +290,10 @@ def train_and_save(
         vectors, labels, test_size=0.25, random_state=seed, stratify=labels
     )
 
-    classifier = RandomForestClassifier(n_estimators=120, max_depth=12, random_state=seed, n_jobs=-1)
+    # n_jobs=1 keeps inference single-process: multiprocessing pools would be
+    # spawned and torn down on every single-event prediction, dominating latency.
+    # Tree counts are sized for fast per-alert inference on a laptop.
+    classifier = RandomForestClassifier(n_estimators=40, max_depth=12, random_state=seed, n_jobs=1)
     classifier.fit(train_vectors, train_labels)
     predictions = classifier.predict(test_vectors)
     accuracy = float(accuracy_score(test_labels, predictions))
@@ -298,7 +301,7 @@ def train_and_save(
 
     benign_indices = [index for index, label in enumerate(train_labels) if label == "benign"]
     benign_vectors = [train_vectors[index] for index in benign_indices]
-    anomaly_detector = IsolationForest(n_estimators=100, contamination=0.05, random_state=seed)
+    anomaly_detector = IsolationForest(n_estimators=40, contamination=0.05, random_state=seed, n_jobs=1)
     anomaly_detector.fit(benign_vectors)
 
     output_dir = Path(output_dir)
