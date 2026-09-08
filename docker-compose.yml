@@ -14,12 +14,12 @@ services:
 
   dashboard:
     image: node:22-slim
-    working_dir: /workspace/frontend
+    working_dir: /workspace/frontend1
     volumes:
       - .:/workspace
     env_file:
       - .env
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    command: sh -c "npm install && npm run dev"
     ports:
       - "5173:5173"
     depends_on:

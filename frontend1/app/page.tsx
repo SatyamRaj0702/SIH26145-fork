@@ -1046,6 +1046,26 @@ function About({ metrics }: { metrics: BackendMetrics | null }) {
         </div>
       </section>
 
+      <section className="panel problem-panel">
+        <div className="panel-heading">
+          <div>
+            <span className="eyebrow">SIH 2026 TEAM</span>
+            <h2>Heritage Institute of Technology, Kolkata</h2>
+          </div>
+          <Shield size={18} className="cyan-icon" />
+        </div>
+        <p>
+          <strong>Team Lead:</strong> Shivansh Kumar
+        </p>
+        <div className="problem-tags">
+          <span>Satyam Raj</span>
+          <span>Anshika</span>
+          <span>Aditya</span>
+          <span>Piyush</span>
+          <span>Priyanshu</span>
+        </div>
+      </section>
+
       <section className="panel sample-json">
         <div className="panel-heading">
           <div>

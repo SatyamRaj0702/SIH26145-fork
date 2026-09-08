@@ -2,17 +2,34 @@
 
 > **Smart India Hackathon 2026 · PS 26145 · NTRO** — AI-based detection of cyber threats in unidirectional IP traffic using passive, read-only analysis.
 
-[![CI](https://img.shields.io/github/actions/workflow/status/archduke1337/SIH26145/ci.yml?branch=main&label=CI&logo=github)](https://github.com/archduke1337/SIH26145/actions)
-[![License](https://img.shields.io/github/license/archduke1337/SIH26145)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/Shivansh-HITK/SIH26145/ci.yml?branch=main&label=CI&logo=github)](https://github.com/Shivansh-HITK/SIH26145/actions)
+[![License](https://img.shields.io/github/license/Shivansh-HITK/SIH26145)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](backend/pyproject.toml)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688?logo=fastapi&logoColor=white)](backend/pyproject.toml)
-[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=white)](frontend/package.json)
+[![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)](frontend1/package.json)
 
-**Status:** Full local demo implemented and tested — detection engine, FastAPI replay API with WebSocket alerts, React/HeroUI dashboard, nine threat scenarios, a local scikit-learn model layer, and benchmarked throughput/latency. Appwrite persistence and an optional Ollama explanation layer ship as adapters.
+**Status:** Full local demo implemented and tested — detection engine, FastAPI replay API with WebSocket alerts, Next.js App Router console with live Google OAuth (Auth.js v5), nine threat scenarios, a local scikit-learn model layer, and benchmarked throughput/latency. Appwrite persistence and an optional Ollama explanation layer ship as adapters.
+
+---
+
+## Team & Institution
+
+**College Name:** Heritage Institute of Technology, Kolkata
+
+| Role | Name |
+|---|---|
+| **Team Lead** | Shivansh Kumar |
+| **Team Member 1** | Satyam Raj |
+| **Team Member 2** | Anshika |
+| **Team Member 3** | Aditya |
+| **Team Member 4** | Piyush |
+| **Team Member 5** | Priyanshu |
+
+---
 
 ## What are we building?
 
-SIH26145 is a cybersecurity software system with a web dashboard. A local Python detection engine replays or ingests synthetic network-flow events, extracts behavioral features, detects threats, and emits explainable alerts. A React/TypeScript dashboard presents those alerts in near real time.
+SIH26145 is a cybersecurity software system with a web dashboard. A local Python detection engine replays or ingests synthetic network-flow events, extracts behavioral features, detects threats, and emits explainable alerts. A Next.js/TypeScript dashboard presents those alerts in near real time.
 
 ```text
 Synthetic traffic → read-only replay → Python detection engine
@@ -21,7 +38,7 @@ Synthetic traffic → read-only replay → Python detection engine
                                       ↓
                          Appwrite storage/realtime
                                       ↓
-                           React security dashboard
+                        Next.js security dashboard
 ```
 
 The prototype simulates a secure monitoring enclave. It does not claim to implement a physical data diode.
@@ -84,12 +101,10 @@ The live detection console shows scenario-driven replay controls, realtime metri
 | Features and ML | Rule-based detectors plus a trained scikit-learn RandomForest layer (NumPy/SciPy features) |
 | Alert validation | Pydantic |
 | Application backend | Appwrite |
-| Frontend | React, TypeScript, Vite |
-| UI components | HeroUI + Tailwind CSS |
-| Charts | Recharts |
-| Local explanation model | Optional Qwen2.5-3B-Instruct through Ollama |
+| Frontend | Next.js 16 (App Router), TypeScript, Auth.js v5 (Google OAuth) |
+| UI & Styles | Tailwind CSS, Lucide Icons |
 | Deployment | Docker Compose |
-| Testing | pytest, Vitest, React Testing Library |
+| Testing | pytest |
 
 ## Demo principle
 
@@ -107,12 +122,12 @@ uvicorn sih_detector.api:app --app-dir backend/src --reload
 In a second terminal:
 
 ```bash
-cd frontend
+cd frontend1
 npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`, select a scenario, and start replay. The dashboard uses the local API and WebSocket by default. No network capture, Appwrite credentials, or external AI API is required.
+Open `http://localhost:5173`, authenticate with Google or launch replay. The dashboard uses the local API and WebSocket by default. No network capture, Appwrite credentials, or external AI API is required.
 
 ### Option B: Docker Compose
 
