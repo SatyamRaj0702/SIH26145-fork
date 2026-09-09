@@ -56,6 +56,8 @@ LABEL_TO_THREAT = {
     "botnet_beaconing": ThreatClass.BOTNET_BEACONING,
     "encrypted_session_anomaly": ThreatClass.ENCRYPTED_SESSION_ANOMALY,
     "data_exfiltration": ThreatClass.DATA_EXFILTRATION,
+    "udp_amplification": ThreatClass.UDP_AMPLIFICATION,
+    "slowloris": ThreatClass.SLOWLORIS,
 }
 
 

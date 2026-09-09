@@ -3,10 +3,10 @@
 ## High-level design
 
 ```text
-Synthetic traffic generator / fixture
+Authorized live interface / JSONL fixture
               │
               ▼
-      Read-only JSONL replay
+      Passive capture or read-only replay
               │
               ▼
       Python streaming worker
@@ -81,6 +81,9 @@ The React dashboard subscribes to new alerts over the local WebSocket stream and
 
 All services run locally using Docker Compose or local processes. JSONL replay produces deterministic scenarios.
 
-### Future collector mode
+### Live collector mode
 
-A flow exporter or PCAP adapter feeds the same normalized event interface. Detection logic remains unchanged.
+The optional Scapy adapter captures authorized IP metadata from a local
+interface and feeds the same normalized `FlowEvent` interface. Detection logic
+remains unchanged. Unlabeled captures support anomaly-baseline training;
+supervised threat classification requires operator-labeled windows.

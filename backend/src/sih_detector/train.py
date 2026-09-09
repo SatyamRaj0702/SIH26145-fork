@@ -1,9 +1,8 @@
-"""Train the optional local scikit-learn models on synthetic labeled windows.
+"""Train the optional local scikit-learn models on labeled observation windows.
 
-The generated dataset mirrors the passive observation contract of the SIH
-problem statement: every sample is a small window of normalized ``FlowEvent``
-records, and every feature is computed from metadata only. Training therefore
-never touches packet payloads or the network.
+The built-in generator remains available for deterministic tests and demos.
+Production-style training accepts operator-labeled real observation windows;
+all features are still computed from metadata-only ``FlowEvent`` records.
 """
 
 from __future__ import annotations
@@ -15,6 +14,7 @@ from pathlib import Path
 
 from .features import extract_window_features
 from .model import CLASS_LABELS, FEATURE_NAMES, DEFAULT_MODEL_DIR
+from .replay import read_events
 from .schemas import FlowEvent
 
 
@@ -274,6 +274,38 @@ SAMPLE_GENERATORS = {
     "slowloris": _sample_slowloris,
 }
 
+FIXTURE_LABELS = {
+    "syn_flood": "ddos",
+    "port_scanning": "port_scanning",
+    "dns_tunnelling": "dns_tunnelling",
+    "dga": "dga",
+    "beaconing": "botnet_beaconing",
+    "encrypted_session": "encrypted_session_anomaly",
+    "exfiltration": "data_exfiltration",
+    "udp_amplification": "udp_amplification",
+    "slowloris": "slowloris",
+}
+
+
+def build_bootstrap_dataset(output_path: str | Path, per_class: int = 50, seed: int = 42) -> dict[str, object]:
+    """Write a labeled bootstrap dataset from the deterministic scenario generators.
+
+    This is a development fallback for environments without authorized real
+    captures. It is deliberately marked as fixture data in the output metadata.
+    """
+    rng = random.Random(seed)
+    base = datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc)
+    rows: list[str] = []
+    for label, generator in SAMPLE_GENERATORS.items():
+        for index in range(per_class):
+            events = generator(rng, base + timedelta(minutes=index))
+            row = {"label": label, "events": [event.model_dump(mode="json") for event in events]}
+            rows.append(json.dumps(row))
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    return {"output_path": str(output), "windows": len(rows), "source": "fixture_bootstrap"}
+
 
 def generate_dataset(per_class: int = 200, seed: int = 42) -> tuple[list[list[float]], list[str]]:
     """Generate labeled feature vectors; one sample per synthetic window."""
@@ -380,3 +412,149 @@ def train_and_save(
         "eval_seed": eval_seed,
         "version": meta["version"],
     }
+
+
+def _load_labeled_windows(path: str | Path) -> tuple[list[list[float]], list[str]]:
+    """Load real labeled windows from JSONL without accepting raw payloads.
+
+    Each line must contain ``{"label": "...", "events": [{...}]}``, where
+    each event follows the normalized FlowEvent schema.
+    """
+    vectors: list[list[float]] = []
+    labels: list[str] = []
+    allowed = set(SAMPLE_GENERATORS)
+    with Path(path).open(encoding="utf-8") as source:
+        for line_number, line in enumerate(source, start=1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+                label = str(row["label"])
+                events = [FlowEvent.model_validate(item) for item in row["events"]]
+                if label not in allowed or not events:
+                    raise ValueError("label must be a supported class and events must be non-empty")
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+                raise ValueError(f"Invalid labeled window at {path}:{line_number}: {exc}") from exc
+            features = extract_window_features(events, window_seconds=30.0)
+            vectors.append([float(features.model_dump()[name]) for name in FEATURE_NAMES])
+            labels.append(label)
+    if len(set(labels)) < 2:
+        raise ValueError("At least two labeled classes are required for supervised training")
+    return vectors, labels
+
+
+def train_from_labeled_jsonl(
+    input_path: str | Path,
+    output_dir: str | Path = DEFAULT_MODEL_DIR,
+    seed: int = 42,
+    test_size: float = 0.2,
+    training_mode: str = "operator_labeled_real_observations",
+) -> dict[str, object]:
+    """Train production artifacts from operator-labeled real observations."""
+    try:
+        from sklearn.ensemble import IsolationForest, RandomForestClassifier
+        from sklearn.metrics import accuracy_score, classification_report
+    except ImportError as exc:
+        raise RuntimeError(
+            "scikit-learn is not installed. Install it with: python -m pip install -e 'backend[ml]'"
+        ) from exc
+
+    vectors, labels = _load_labeled_windows(input_path)
+    # Keep the final windows of each class out of training. This is less
+    # optimistic than randomly splitting adjacent flows from the same capture.
+    train_vectors: list[list[float]] = []
+    test_vectors: list[list[float]] = []
+    train_labels: list[str] = []
+    test_labels: list[str] = []
+    for label in sorted(set(labels)):
+        class_vectors = [vector for vector, item_label in zip(vectors, labels) if item_label == label]
+        holdout = max(1, int(len(class_vectors) * test_size))
+        if len(class_vectors) - holdout < 1:
+            raise ValueError(f"Class {label!r} needs at least two labeled windows")
+        train_vectors.extend(class_vectors[:-holdout])
+        train_labels.extend([label] * (len(class_vectors) - holdout))
+        test_vectors.extend(class_vectors[-holdout:])
+        test_labels.extend([label] * holdout)
+    classifier = RandomForestClassifier(n_estimators=120, max_depth=16, random_state=seed, n_jobs=1)
+    classifier.fit(train_vectors, train_labels)
+    predictions = classifier.predict(test_vectors)
+    benign_vectors = [vector for vector, label in zip(train_vectors, train_labels) if label == "benign"]
+    if not benign_vectors:
+        raise ValueError("Labeled training data must include benign windows for anomaly scoring")
+    anomaly_detector = IsolationForest(n_estimators=120, contamination=0.05, random_state=seed, n_jobs=1)
+    anomaly_detector.fit(benign_vectors)
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    import joblib
+
+    joblib.dump(classifier, output_dir / "threat_classifier.joblib")
+    joblib.dump(anomaly_detector, output_dir / "anomaly_detector.joblib")
+    version = "ml-bootstrap-v1" if training_mode == "fixture_bootstrap" else "ml-real-v1"
+    meta = {
+        "version": version,
+        "class_labels": sorted(set(labels)),
+        "feature_names": FEATURE_NAMES,
+        "training_source": str(input_path),
+        "training_mode": training_mode,
+        "seed": seed,
+        "evaluation_accuracy": round(float(accuracy_score(test_labels, predictions)), 4),
+        "evaluation_method": "contiguous_per_class_holdout",
+    }
+    (output_dir / "model_meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+    return {
+        "output_dir": str(output_dir),
+        "trained_on": len(train_labels),
+        "evaluated_on": len(test_labels),
+        "accuracy": meta["evaluation_accuracy"],
+        "classification_report": classification_report(test_labels, predictions, zero_division=0),
+        "version": meta["version"],
+    }
+
+
+def train_baseline_from_jsonl(
+    input_path: str | Path,
+    output_dir: str | Path = DEFAULT_MODEL_DIR,
+    window_size: int = 64,
+) -> dict[str, object]:
+    """Train only an anomaly baseline from unlabeled live observations.
+
+    Unlabeled traffic cannot teach a supervised classifier which threat class
+    is correct, so this mode deliberately saves no classifier predictions.
+    """
+    try:
+        from sklearn.ensemble import IsolationForest
+    except ImportError as exc:
+        raise RuntimeError(
+            "scikit-learn is not installed. Install it with: python -m pip install -e 'backend[ml]'"
+        ) from exc
+
+    events = list(read_events(input_path))
+    if len(events) < window_size:
+        raise ValueError(f"At least {window_size} normalized events are required for baseline training")
+    vectors = [
+        [
+            float(features.model_dump()[name])
+            for name in FEATURE_NAMES
+        ]
+        for index in range(0, len(events) - window_size + 1, window_size)
+        for features in [extract_window_features(events[index : index + window_size], 30.0)]
+    ]
+    detector = IsolationForest(n_estimators=120, contamination=0.05, random_state=42, n_jobs=1)
+    detector.fit(vectors)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    import joblib
+
+    joblib.dump(None, output_dir / "threat_classifier.joblib")
+    joblib.dump(detector, output_dir / "anomaly_detector.joblib")
+    meta = {
+        "version": "ml-baseline-v1",
+        "class_labels": CLASS_LABELS,
+        "feature_names": FEATURE_NAMES,
+        "training_source": str(input_path),
+        "training_mode": "unlabeled_live_anomaly_baseline",
+        "windows": len(vectors),
+    }
+    (output_dir / "model_meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+    return {"output_dir": str(output_dir), "trained_on": len(events), "windows": len(vectors), "version": meta["version"]}

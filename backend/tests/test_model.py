@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta, timezone
+import json
 
 from sih_detector.features import extract_window_features
 from sih_detector.model import FEATURE_NAMES, features_to_vector, load_scorer
 from sih_detector.schemas import FlowEvent, ThreatClass
-from sih_detector.train import generate_dataset, train_and_save
+from sih_detector.train import generate_dataset, train_and_save, train_baseline_from_jsonl, train_from_labeled_jsonl
 
 BASE_TIME = datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc)
 
@@ -94,3 +95,25 @@ def test_generated_dataset_has_all_classes() -> None:
         "udp_amplification",
         "slowloris",
     }
+
+
+def test_real_labeled_windows_train_classifier(tmp_path) -> None:
+    dataset = tmp_path / "labeled.jsonl"
+    rows = []
+    for label, window in [("benign", ddos_window()), ("ddos", ddos_window())]:
+        rows.extend({"label": label, "events": [event.model_dump(mode="json") for event in window]} for _ in range(5))
+    dataset.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    result = train_from_labeled_jsonl(dataset, output_dir=tmp_path / "models")
+    assert result["version"] == "ml-real-v1"
+    assert (tmp_path / "models" / "model_meta.json").is_file()
+
+
+def test_unlabeled_live_events_train_anomaly_baseline(tmp_path) -> None:
+    dataset = tmp_path / "live.jsonl"
+    events = ddos_window() * 7
+    dataset.write_text("\n".join(event.model_dump_json() for event in events) + "\n", encoding="utf-8")
+
+    result = train_baseline_from_jsonl(dataset, output_dir=tmp_path / "models", window_size=10)
+    assert result["version"] == "ml-baseline-v1"
+    assert load_scorer(tmp_path / "models") is not None

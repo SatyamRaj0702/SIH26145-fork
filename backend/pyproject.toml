@@ -21,6 +21,12 @@ appwrite = [
 ml = [
   "scikit-learn>=1.4,<2"
 ]
+data = [
+  "pandas>=2.2,<3"
+]
+live = [
+  "scapy>=2.5,<3"
+]
 
 [project.scripts]
 sih26145-api = "sih_detector.api:run"

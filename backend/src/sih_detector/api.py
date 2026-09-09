@@ -8,7 +8,7 @@ from collections import Counter, deque
 from pathlib import Path
 from typing import Any
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,6 +30,11 @@ DEFAULT_MODEL_DIR = PROJECT_ROOT / "models"
 class ReplayRequest(BaseModel):
     scenario: str = Field(min_length=1)
     speed: float = Field(default=1.0, gt=0)
+
+
+class LiveCaptureRequest(BaseModel):
+    interface: str | None = Field(default=None, max_length=128)
+    bpf_filter: str = Field(default="ip or ip6", min_length=1, max_length=512)
 
 
 class ReplayManager:
@@ -65,6 +70,8 @@ class ReplayManager:
                 "events_per_second": 0.0,
                 "average_alert_latency_ms": 0.0,
                 "scenario": None,
+                "source_mode": "idle",
+                "interface": None,
                 "status": "idle",
                 "running": False,
                 "started_at": None,
@@ -93,11 +100,36 @@ class ReplayManager:
         self.alerts.clear()
         self.reset_metrics()
         self.metrics.update({"scenario": scenario, "status": "running", "running": True, "started_at": time.time()})
+        self.metrics.update({"source_mode": "fixture", "interface": None})
         self._thread = threading.Thread(
             target=self._run,
             args=(path, speed),
             daemon=True,
             name="sih-replay",
+        )
+        self._thread.start()
+
+    def start_live(self, interface: str | None, bpf_filter: str) -> None:
+        if self.is_running():
+            raise RuntimeError("A replay or live capture is already running")
+        self._stop.clear()
+        self.alerts.clear()
+        self.reset_metrics()
+        self.metrics.update(
+            {
+                "scenario": None,
+                "source_mode": "live",
+                "interface": interface or "default",
+                "status": "running",
+                "running": True,
+                "started_at": time.time(),
+            }
+        )
+        self._thread = threading.Thread(
+            target=self._run_live,
+            args=(interface, bpf_filter),
+            daemon=True,
+            name="sih-live-capture",
         )
         self._thread.start()
 
@@ -120,6 +152,22 @@ class ReplayManager:
         self._subscribers.discard(subscription)
 
     def _run(self, path: Path, speed: float) -> None:
+        self._run_events(read_events(path), speed, "fixture")
+
+    def _run_live(self, interface: str | None, bpf_filter: str) -> None:
+        try:
+            from .live_capture import capture_events
+
+            self._run_events(capture_events(self._stop, interface, bpf_filter), 1.0, "live")
+        except Exception as exc:
+            with self._lock:
+                self.metrics["error_count"] += 1
+                self.metrics["last_error"] = str(exc)
+                self.metrics["status"] = "error"
+                self.metrics["running"] = False
+                self.metrics["finished_at"] = time.time()
+
+    def _run_events(self, events: Iterable[Any], speed: float, source_mode: str) -> None:
         detector = WindowedDetector(DetectionConfig(), scorer=self.scorer)
         started = time.perf_counter()
         last_event_time = None
@@ -131,7 +179,7 @@ class ReplayManager:
                 return []
             if last_event_time is not None:
                 source_gap = max(0.0, (event.timestamp - last_event_time).total_seconds())
-                if source_gap > 0:
+                if source_mode != "live" and source_gap > 0:
                     time.sleep(source_gap / speed)
             last_event_time = event.timestamp
             processing_started = time.perf_counter()
@@ -163,7 +211,7 @@ class ReplayManager:
             self._enqueue_explanation(alert)
 
         try:
-            replay(read_events(path), handle_event, handle_alert)
+            replay(events, handle_event, handle_alert)
             status = "stopped" if self._stop.is_set() else "completed"
         except Exception as exc:  # Keep the demo status visible instead of killing the API.
             with self._lock:
@@ -176,6 +224,7 @@ class ReplayManager:
             self.metrics["status"] = status
             self.metrics["running"] = False
             self.metrics["finished_at"] = time.time()
+            self.metrics["source_mode"] = source_mode
         self._broadcast({"type": "metrics", "metrics": self.metrics})
 
     def _enqueue_explanation(self, alert: Alert) -> None:
@@ -257,6 +306,15 @@ def stop_replay() -> dict[str, str]:
     return {"status": "stopped"}
 
 
+@app.post("/api/live/start")
+def start_live_capture(request: LiveCaptureRequest) -> dict[str, str]:
+    try:
+        manager.start_live(request.interface, request.bpf_filter)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"status": "started", "source_mode": "live", "interface": request.interface or "default"}
+
+
 @app.websocket("/ws/alerts")
 async def alert_socket(websocket: WebSocket) -> None:
     await websocket.accept()
@@ -279,7 +337,7 @@ async def get_explanation(alert_id: str) -> dict[str, Any]:
     if alert is None:
         raise HTTPException(status_code=404, detail="Alert not found")
     if alert.explanation:
-        return {"alert_id": alert_id, "explanation": alert.explanation, "source": "ollama_or_cached"}
+        return {"alert_id": alert_id, "explanation": alert.explanation, "source": "cached"}
     result = await generate_explanation(alert)
     alert.explanation = result.explanation
     manager._broadcast(

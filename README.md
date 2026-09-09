@@ -89,6 +89,7 @@ The live detection console shows scenario-driven replay controls, realtime metri
 | [Testing & benchmarks](docs/TESTING.md) | Test plan and measured throughput/latency |
 | [Roadmap](docs/ROADMAP.md) | What's done and what's next |
 | [Local demo guide](docs/LOCAL_DEMO.md) | Run it end-to-end |
+| [Live capture and training](docs/LIVE_CAPTURE_AND_TRAINING.md) | Authorized passive capture and real-data model training |
 | [SIH submission](docs/SIH_SUBMISSION.md) | Problem → solution traceability for the hackathon |
 
 ## Stack
@@ -109,6 +110,8 @@ The live detection console shows scenario-driven replay controls, realtime metri
 ## Demo principle
 
 The primary detection path remains local and deterministic/measurable. The optional small local LLM only explains already-generated structured alerts; it does not make or change detection decisions.
+
+For authorized passive interface capture and real-data model training, see [Live capture and training](docs/LIVE_CAPTURE_AND_TRAINING.md). Unlabeled live traffic can train an anomaly baseline; supervised threat classification requires operator-labeled windows.
 
 ## Run the local demo
 

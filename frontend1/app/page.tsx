@@ -67,6 +67,8 @@ type BackendMetrics = {
   events_per_second: number
   average_alert_latency_ms: number
   scenario: string | null
+  source_mode?: 'idle' | 'fixture' | 'live'
+  interface?: string | null
   status: string
   running: boolean
   started_at: number | null
@@ -96,7 +98,7 @@ type AlertView = {
 type SocketMessage =
   | { type: 'alert'; alert: BackendAlert }
   | { type: 'metrics'; metrics: BackendMetrics }
-  | { type: 'explained'; alert_id: string; explanation: string; source: string }
+  | { type: 'explained'; alert_id: string; explanation: string; source: 'ollama' | 'template' | 'cached' }
 
 type SeverityFilter = 'all' | Severity
 
@@ -428,6 +430,9 @@ function ReplayControls({
   running,
   onStart,
   onStop,
+  liveInterface,
+  setLiveInterface,
+  onStartLive,
   status,
 }: {
   scenarios: string[]
@@ -438,6 +443,9 @@ function ReplayControls({
   running: boolean
   onStart: () => void
   onStop: () => void
+  liveInterface: string
+  setLiveInterface: (value: string) => void
+  onStartLive: () => void
   status: BackendMetrics | null
 }) {
   return (
@@ -483,18 +491,34 @@ function ReplayControls({
             <Pause size={14} /> Stop
           </button>
         </div>
+
+        <label>
+          LIVE INTERFACE
+          <input
+            value={liveInterface}
+            onChange={event => setLiveInterface(event.target.value)}
+            placeholder="default interface"
+            aria-label="Live capture interface"
+          />
+        </label>
+
+        <button className="secondary-button compact" onClick={onStartLive} type="button" disabled={running}>
+          <Wifi size={14} /> Start live capture
+        </button>
       </div>
 
       <div className="replay-status">
         <span className={`live-pulse ${running ? 'on' : ''}`} />
-        {status?.status === 'running'
-          ? `Streaming ${selectedScenario.replaceAll('_', ' ')} events`
+        {status?.status === 'running' && status.source_mode === 'live'
+          ? `Capturing passive metadata on ${(status.interface ?? liveInterface) || 'default interface'}`
+          : status?.status === 'running'
+            ? `Streaming ${selectedScenario.replaceAll('_', ' ')} events`
           : status?.status === 'completed'
             ? 'Replay completed'
             : status?.status === 'error'
               ? 'Replay error'
               : 'Replay engine idle'}
-        <span className="replay-id">SESSION / {status?.scenario ? status.scenario.toUpperCase() : 'READY'}</span>
+        <span className="replay-id">SOURCE / {status?.source_mode?.toUpperCase() ?? 'IDLE'}</span>
       </div>
     </section>
   )
@@ -738,7 +762,7 @@ function AlertsTable({ alerts, onSelect }: { alerts: AlertView[]; onSelect: (ale
   )
 }
 
-function EvidenceDrawer({ alert, explanation, onExplain, onClose }: { alert: AlertView | null; explanation: string | null; onExplain: () => void; onClose: () => void }) {
+function EvidenceDrawer({ alert, explanation, explanationSource, explanationLoading, onExplain, onClose }: { alert: AlertView | null; explanation: string | null; explanationSource: string | null; explanationLoading: boolean; onExplain: () => void; onClose: () => void }) {
   if (!alert) return null
 
   return (
@@ -847,8 +871,17 @@ function EvidenceDrawer({ alert, explanation, onExplain, onClose }: { alert: Ale
           </pre>
 
           <button className="secondary-button compact explanation-button" onClick={onExplain} type="button">
-            Explain alert
+            {explanationLoading ? 'Generating AI explanation...' : explanation ? 'Regenerate explanation' : 'Explain alert with AI'}
           </button>
+          {explanation && (
+            <div className="explanation-result">
+              <div className="json-label">
+                <span className="eyebrow">ANALYST EXPLANATION</span>
+                <span className="muted">{explanationSource === 'ollama' ? 'OLLAMA AI' : explanationSource === 'cached' ? 'CACHED' : 'FALLBACK'}</span>
+              </div>
+              <p>{explanation}</p>
+            </div>
+          )}
         </div>
       </aside>
     </>
@@ -1091,9 +1124,12 @@ function App() {
   const [scenarios, setScenarios] = useState<string[]>([])
   const [selectedScenario, setSelectedScenario] = useState('')
   const [speed, setSpeed] = useState<ReplaySpeed>(1)
+  const [liveInterface, setLiveInterface] = useState('')
   const [alerts, setAlerts] = useState<AlertView[]>([])
   const [selected, setSelected] = useState<AlertView | null>(null)
   const [explanation, setExplanation] = useState<string | null>(null)
+  const [explanationSource, setExplanationSource] = useState<string | null>(null)
+  const [explanationLoading, setExplanationLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [connectionState, setConnectionState] = useState<'connecting' | 'connected' | 'error'>('connecting')
 
@@ -1172,6 +1208,8 @@ function App() {
 
         if (selected?.alert_id === message.alert_id) {
           setExplanation(message.explanation)
+          setExplanationSource(message.source)
+          setExplanationLoading(false)
         }
       }
     }
@@ -1197,10 +1235,28 @@ function App() {
     setMetrics(current => (current ? { ...current, running: false, status: 'stopped' } : current))
   }
 
+  const handleStartLive = async () => {
+    await requestJson('/api/live/start', {
+      method: 'POST',
+      body: JSON.stringify({ interface: liveInterface || null }),
+    })
+    setMetrics(current =>
+      current
+        ? { ...current, scenario: null, source_mode: 'live', interface: liveInterface || 'default', running: true, status: 'running' }
+        : current,
+    )
+  }
+
   const handleExplain = async () => {
     if (!selected) return
-    const response = await requestJson<{ explanation: string }>(`/api/explain/${selected.alert_id}`)
-    setExplanation(response.explanation)
+    setExplanationLoading(true)
+    try {
+      const response = await requestJson<{ explanation: string; source: string }>(`/api/explain/${selected.alert_id}`)
+      setExplanation(response.explanation)
+      setExplanationSource(response.source)
+    } finally {
+      setExplanationLoading(false)
+    }
   }
 
   const content = useMemo(() => {
@@ -1227,6 +1283,9 @@ function App() {
           running={Boolean(metrics?.running)}
           onStart={() => void handleStart()}
           onStop={() => void handleStop()}
+          liveInterface={liveInterface}
+          setLiveInterface={setLiveInterface}
+          onStartLive={() => void handleStartLive()}
           status={metrics}
         />
 
@@ -1315,10 +1374,14 @@ function App() {
       <EvidenceDrawer
         alert={selected}
         explanation={explanation}
+        explanationSource={explanationSource}
+        explanationLoading={explanationLoading}
         onExplain={() => void handleExplain()}
         onClose={() => {
           setSelected(null)
           setExplanation(null)
+          setExplanationSource(null)
+          setExplanationLoading(false)
         }}
       />
     </main>
