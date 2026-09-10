@@ -71,6 +71,7 @@ class ReplayManager:
                 "average_alert_latency_ms": 0.0,
                 "scenario": None,
                 "source_mode": "idle",
+                "data_provenance": "none",
                 "interface": None,
                 "status": "idle",
                 "running": False,
@@ -101,6 +102,7 @@ class ReplayManager:
         self.reset_metrics()
         self.metrics.update({"scenario": scenario, "status": "running", "running": True, "started_at": time.time()})
         self.metrics.update({"source_mode": "fixture", "interface": None})
+        self.metrics["data_provenance"] = "synthetic_fixture"
         self._thread = threading.Thread(
             target=self._run,
             args=(path, speed),
@@ -119,6 +121,7 @@ class ReplayManager:
             {
                 "scenario": None,
                 "source_mode": "live",
+                "data_provenance": "authorized_live_metadata",
                 "interface": interface or "default",
                 "status": "running",
                 "running": True,
@@ -225,6 +228,9 @@ class ReplayManager:
             self.metrics["running"] = False
             self.metrics["finished_at"] = time.time()
             self.metrics["source_mode"] = source_mode
+            self.metrics["data_provenance"] = (
+                "authorized_live_metadata" if source_mode == "live" else "synthetic_fixture"
+            )
         self._broadcast({"type": "metrics", "metrics": self.metrics})
 
     def _enqueue_explanation(self, alert: Alert) -> None:

@@ -18,6 +18,12 @@ def test_scenario_endpoint_lists_jsonl_fixtures() -> None:
     assert {"syn_flood", "dns_tunnelling", "beaconing"}.issubset(scenarios)
 
 
+def test_metrics_declares_data_provenance() -> None:
+    client = TestClient(app)
+    metrics = client.get("/api/metrics").json()
+    assert metrics["data_provenance"] in {"none", "synthetic_fixture", "authorized_live_metadata"}
+
+
 def test_unknown_scenario_is_rejected(tmp_path: Path) -> None:
     manager = ReplayManager(tmp_path)
     try:

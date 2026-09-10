@@ -68,6 +68,7 @@ type BackendMetrics = {
   average_alert_latency_ms: number
   scenario: string | null
   source_mode?: 'idle' | 'fixture' | 'live'
+  data_provenance: 'none' | 'synthetic_fixture' | 'authorized_live_metadata'
   interface?: string | null
   status: string
   running: boolean
@@ -156,6 +157,14 @@ function severityTone(value: Severity) {
         : value === 'low'
           ? 'tone-low'
           : 'tone-info'
+}
+
+function provenanceLabel(value: BackendMetrics['data_provenance'] | undefined) {
+  return value === 'authorized_live_metadata'
+    ? 'AUTHORIZED LIVE DATA'
+    : value === 'synthetic_fixture'
+      ? 'SYNTHETIC FIXTURE'
+      : 'NO DATA SOURCE'
 }
 
 function formatTimestamp(value: string) {
@@ -307,7 +316,7 @@ function Header({
         <span className="clock">
           <Clock3 size={14} /> {clock}
         </span>
-        <span className={`pill ${status?.running ? 'connected' : ''}`}>
+        <span className={`pill ${status?.running ? 'connected' : ''}`} title={provenanceLabel(status?.data_provenance)}>
           <span className="status-dot" /> {status?.running ? 'REALTIME' : 'IDLE'}
         </span>
         <span className="pill">
@@ -1009,6 +1018,12 @@ function Analytics({ alerts, metrics }: { alerts: AlertView[]; metrics: BackendM
             <Database size={15} /> Event ingestion
           </span>
           <b>{metrics?.status ?? 'idle'}</b>
+        </div>
+        <div className="posture-line">
+          <span>
+            <Activity size={15} /> Data provenance
+          </span>
+          <b>{provenanceLabel(metrics?.data_provenance)}</b>
         </div>
         <div className="posture-line">
           <span>

@@ -31,6 +31,16 @@ PYTHONPATH=backend/src python -m sih_detector.cli \
 
 The output is normalized `FlowEvent` JSONL containing timestamp, addresses, ports, protocol, packet length, TCP flags, DNS metadata, and inferred direction. Payload bytes are not written.
 
+The dashboard labels this source as `AUTHORIZED LIVE DATA`. It must not be
+reported as a real incident unless the interface is authorized and the
+capture has been reviewed. Fixture replay is labelled `SYNTHETIC FIXTURE`.
+
+Live metadata coverage is not identical to fixture coverage: DNS, rate,
+fan-out, timing, byte-ratio, and TCP-completion detectors can operate from
+normalized packets; encrypted-session anomaly detection requires TLS/QUIC
+metadata extraction (fingerprints, versions, and packet-size sequences) that
+must be validated on the target capture environment before claiming coverage.
+
 ## Train from unlabeled live traffic
 
 Unlabeled traffic cannot train a supervised threat-class classifier honestly. It can train a benign/anomaly baseline when the capture is known to represent a clean period:
