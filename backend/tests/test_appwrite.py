@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import json
 
 from sih_detector.appwrite import AppwriteAlertSink
 from sih_detector.schemas import Alert, Evidence, Severity, ThreatClass
@@ -62,3 +63,4 @@ def test_sink_persists_documents_and_tracks_count(monkeypatch) -> None:
     assert sink.status()["persisted_count"] == 2
     assert created[0]["document_id"] == "alert-test-1"
     assert created[0]["data"]["threat_class"] == "ddos"
+    assert json.loads(created[0]["data"]["evidence"])[0]["feature"] == "syn_ratio"

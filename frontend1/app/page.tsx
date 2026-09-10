@@ -76,7 +76,7 @@ type BackendMetrics = {
   threat_counts: Record<string, number>
   error_count: number
   model_status: { available: boolean; version: string }
-  appwrite_status: Record<string, unknown>
+  appwrite_status: { enabled: boolean; persisted_count: number; last_error: string | null }
   ollama_status: { enabled: boolean; model: string; available: boolean }
   last_error?: string
 }
@@ -310,7 +310,9 @@ function Header({
         <span className={`pill ${status?.running ? 'connected' : ''}`}>
           <span className="status-dot" /> {status?.running ? 'REALTIME' : 'IDLE'}
         </span>
-        <span className="pill">APPWRITE <span className="pill-check">✓</span></span>
+        <span className="pill">
+          APPWRITE {status?.appwrite_status.enabled ? <span className="pill-check">✓</span> : '—'}
+        </span>
         <span className="pill violet-pill">ML {status?.model_status.available ? <span className="pill-check">✓</span> : '—'}</span>
         <button className="icon-button" onClick={onLogout} aria-label="Log out" title="Sign out" type="button">
           <LogOut size={17} />
@@ -1018,7 +1020,7 @@ function Analytics({ alerts, metrics }: { alerts: AlertView[]; metrics: BackendM
           <span>
             <HardDrive size={15} /> Evidence store
           </span>
-          <b>{metrics?.appwrite_status ? 'Connected' : 'Local'}</b>
+            <b>{metrics?.appwrite_status.enabled ? 'Connected' : 'Local'}</b>
         </div>
       </section>
     </div>

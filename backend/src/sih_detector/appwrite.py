@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 from typing import Any
 
 from .schemas import Alert
@@ -47,6 +48,7 @@ class AppwriteAlertSink:
         if not self.enabled:
             return False
         data = alert.model_dump(mode="json")
+        data["evidence"] = json.dumps(data["evidence"], separators=(",", ":"))
         self._databases.create_document(
             database_id=self.database_id,
             collection_id=self.collection_id,

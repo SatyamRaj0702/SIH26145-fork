@@ -11,10 +11,10 @@ Python read-only detectors
      ↓
 WebSocket alert stream
      ↓
-React + HeroUI dashboard
+Next.js dashboard
 ```
 
-Appwrite is optional. When configured, the API persists alerts to an Appwrite collection and the dashboard subscribes to Appwrite Realtime (deduplicated against the WebSocket stream). Detection and the dashboard do not depend on Appwrite for the local demo.
+Appwrite is optional. When configured, the API persists alerts to an Appwrite collection. The Next.js dashboard receives active alerts from the FastAPI WebSocket and shows Appwrite persistence status from `/api/metrics`; the local demo does not depend on Appwrite.
 
 ## Start with local processes
 
@@ -30,7 +30,7 @@ uvicorn sih_detector.api:app --app-dir backend/src --reload
 In a second terminal:
 
 ```bash
-cd frontend
+cd frontend1
 npm install
 npm run dev
 ```
@@ -98,13 +98,14 @@ APPWRITE_ALERTS_COLLECTION_ID
 APPWRITE_API_KEY
 ```
 
-Frontend values (dashboard realtime + history; the Vite dev proxy forwards `/v1` to the endpoint):
+Frontend values (Next.js dashboard and Auth.js):
 
 ```text
-VITE_APPWRITE_ENDPOINT
-VITE_APPWRITE_PROJECT_ID
-VITE_APPWRITE_DATABASE_ID
-VITE_APPWRITE_ALERTS_COLLECTION_ID
+NEXT_PUBLIC_API_BASE_URL
+AUTH_SECRET
+AUTH_URL
+AUTH_GOOGLE_ID
+AUTH_GOOGLE_SECRET
 ```
 
 Create an alerts collection whose attributes can accept the JSON fields in [the alert schema](ALERT_SCHEMA.md). Alerts are created with `document_id = alert_id`, so `$id` matches the alert. Keep Appwrite outside the simulated observed network path.
@@ -112,8 +113,11 @@ Create an alerts collection whose attributes can accept the JSON fields in [the 
 When Appwrite is enabled:
 
 - `/api/metrics` reports `appwrite_status` with `enabled` and `persisted_count`.
-- The dashboard shows an `Appwrite connected` chip, loads stored alerts on startup, and merges Appwrite Realtime events (deduplicated by `alert_id`).
+- The dashboard shows whether Appwrite persistence is enabled; active alerts continue through the FastAPI WebSocket.
 - Persistence failures are counted in `error_count` and shown as a banner; detection continues.
+
+For collection attributes, permissions, and the server API key scope, see
+[Appwrite deployment](APPWRITE_DEPLOYMENT.md).
 
 ## Optional local LLM explanations (Ollama)
 
@@ -145,7 +149,7 @@ An automated check exercises the full local demo against a live API and WebSocke
 - Concurrent replay starts are rejected (409) while a replay is running; unknown scenarios are rejected (404).
 - `/api/explain/{alert_id}` returns a template explanation when Ollama is offline.
 - The Vite dev proxy serves the dashboard and forwards `/api` and `/ws` to the API.
-- The dashboard renders in a headless browser with the realtime indicator connected.
+- The dashboard builds successfully and renders in a browser with the realtime indicator connected.
 
 Note: starting a replay clears the previously stored alert buffer (the buffer holds the current replay's alerts), which is expected behavior.
 
@@ -153,5 +157,5 @@ Note: starting a replay clears the previously stored alert buffer (the buffer ho
 
 - `Connection refused`: start the FastAPI process on port 8000.
 - No scenarios: run from the repository root so `data/fixtures` is found.
-- Realtime disconnected: confirm the Vite dev server is running and the API WebSocket endpoint is available.
+- Realtime disconnected: confirm the Next.js dev server is running and the API WebSocket endpoint is available.
 - Appwrite errors: unset the Appwrite variables to use local-only mode, or check `APPWRITE_API_KEY`/collection permissions and confirm the collection attributes match the alert schema.

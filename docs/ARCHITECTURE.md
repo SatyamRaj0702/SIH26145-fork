@@ -45,7 +45,7 @@ A hybrid layer combines deterministic rules, statistical tests, and local scikit
 
 ### Appwrite application services
 
-Appwrite stores alert documents, manages authenticated users, stores optional replay files, and broadcasts alert changes through Realtime. It is part of the application/control plane, not the observed network path.
+Appwrite stores alert documents and is part of the application/control plane, not the observed network path. The current Next.js dashboard receives active alerts from FastAPI WebSocket; Appwrite Realtime is reserved for a future multi-instance/history channel.
 
 ### FastAPI service
 
@@ -57,7 +57,7 @@ An async worker probes Ollama on startup and, for each emitted alert, requests a
 
 ### Dashboard
 
-The React dashboard subscribes to new alerts over the local WebSocket stream and, when configured, over Appwrite Realtime (deduplicated by `alert_id`). It loads stored alerts from Appwrite on startup, displays metrics and timelines, and provides alert investigation and replay controls. It does not make detection decisions.
+The Next.js dashboard subscribes to new alerts over the local WebSocket stream, displays metrics and timelines, and provides alert investigation and replay controls. Appwrite persistence status is shown from the API metrics contract. It does not make detection decisions.
 
 ## Data flow guarantees
 

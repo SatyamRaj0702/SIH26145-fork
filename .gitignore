@@ -10,6 +10,8 @@ __pycache__/
 node_modules/
 dist/
 .vite/
+frontend1/test-results/
+frontend1/playwright-report/
 
 # Local configuration and secrets
 .env

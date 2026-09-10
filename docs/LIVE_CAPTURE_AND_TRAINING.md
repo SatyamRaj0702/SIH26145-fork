@@ -134,3 +134,20 @@ The API metrics identify the source with `source_mode: "live"` and expose the se
 - Measure precision, recall, false-positive rate, and detection latency by environment.
 - Retrain when protocols, applications, or network baselines change.
 - Keep raw packet captures outside the application unless retention is explicitly approved.
+
+## Real-data acceptance gate
+
+Before replacing the demo model artifacts, record these values for each
+environment and time-split holdout:
+
+- rows imported, rows skipped, windows written, and labels by class;
+- train/validation/test time ranges with no overlapping flow IDs;
+- per-class precision, recall, F1, support, and false-positive rate;
+- p50/p95 detection latency and sustained event rate;
+- the exact importer mapping, feature version, model version, and command;
+- whether the capture contains encrypted metadata only and no payload bytes.
+
+Do not publish a model or metric table if a class has no independent holdout,
+if labels were inferred from the same rule output being evaluated, or if the
+capture is not authorized. Keep downloaded public datasets and live captures
+outside Git; only commit reproducible commands and aggregate reports.

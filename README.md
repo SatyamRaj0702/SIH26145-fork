@@ -90,6 +90,7 @@ The live detection console shows scenario-driven replay controls, realtime metri
 | [Roadmap](docs/ROADMAP.md) | What's done and what's next |
 | [Local demo guide](docs/LOCAL_DEMO.md) | Run it end-to-end |
 | [Live capture and training](docs/LIVE_CAPTURE_AND_TRAINING.md) | Authorized passive capture and real-data model training |
+| [Appwrite deployment](docs/APPWRITE_DEPLOYMENT.md) | Optional alert persistence setup and permissions |
 | [SIH submission](docs/SIH_SUBMISSION.md) | Problem → solution traceability for the hackathon |
 
 ## Stack
