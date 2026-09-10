@@ -340,11 +340,11 @@ function LoginScreen() {
   }
 
   return (
-    <main className="login-screen">
+    <main className="login-screen" suppressHydrationWarning>
       <div className="login-grid" />
       <div className="login-glow" />
 
-      <section className="login-card">
+      <section className="login-card" suppressHydrationWarning>
         <div className="login-brand">
           <Logo />
           <span>SIH<span className="cyan">26145</span></span>
@@ -486,7 +486,7 @@ function ReplayControls({
         </label>
 
         <div className="replay-buttons">
-          <button className="primary-button compact" onClick={onStart} type="button" disabled={!selectedScenario}>
+          <button className="primary-button compact" onClick={onStart} type="button" disabled={!selectedScenario || running}>
             <Play size={14} fill="currentColor" /> {running ? 'Running' : 'Start replay'}
           </button>
           <button className="secondary-button compact" onClick={onStop} type="button">
@@ -1134,6 +1134,7 @@ function App() {
   const [explanationLoading, setExplanationLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [connectionState, setConnectionState] = useState<'connecting' | 'connected' | 'error'>('connecting')
+  const [operationError, setOperationError] = useState<string | null>(null)
 
 
   useEffect(() => {
@@ -1183,6 +1184,11 @@ function App() {
       const message = JSON.parse(event.data) as SocketMessage
       if (message.type === 'metrics') {
         setMetrics(message.metrics)
+        if (message.metrics.status === 'running' && message.metrics.source_mode !== 'fixture') {
+          setSelected(null)
+          setExplanation(null)
+          setExplanationSource(null)
+        }
         if (message.metrics.scenario) {
           setSelectedScenario(message.metrics.scenario)
         }
@@ -1225,37 +1231,58 @@ function App() {
 
   const handleStart = async () => {
     if (!selectedScenario) return
-    await requestJson('/api/replay/start', {
-      method: 'POST',
-      body: JSON.stringify({ scenario: selectedScenario, speed }),
-    })
-    setMetrics(current => (current ? { ...current, scenario: selectedScenario, running: true, status: 'running' } : current))
+    setOperationError(null)
+    try {
+      await requestJson('/api/replay/start', {
+        method: 'POST',
+        body: JSON.stringify({ scenario: selectedScenario, speed }),
+      })
+      setMetrics(current => (current ? { ...current, scenario: selectedScenario, running: true, status: 'running' } : current))
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : 'Unable to start replay')
+    }
   }
 
   const handleStop = async () => {
-    await requestJson('/api/replay/stop', { method: 'POST' })
-    setMetrics(current => (current ? { ...current, running: false, status: 'stopped' } : current))
+    setOperationError(null)
+    try {
+      await requestJson('/api/replay/stop', { method: 'POST' })
+      setMetrics(current => (current ? { ...current, running: false, status: 'stopped' } : current))
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : 'Unable to stop capture')
+    }
   }
 
   const handleStartLive = async () => {
-    await requestJson('/api/live/start', {
-      method: 'POST',
-      body: JSON.stringify({ interface: liveInterface || null }),
-    })
-    setMetrics(current =>
-      current
-        ? { ...current, scenario: null, source_mode: 'live', interface: liveInterface || 'default', running: true, status: 'running' }
-        : current,
-    )
+    setOperationError(null)
+    try {
+      await requestJson('/api/live/start', {
+        method: 'POST',
+        body: JSON.stringify({ interface: liveInterface || null }),
+      })
+      setMetrics(current =>
+        current
+          ? { ...current, scenario: null, source_mode: 'live', interface: liveInterface || 'default', running: true, status: 'running' }
+          : current,
+      )
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : 'Unable to start live capture')
+    }
   }
 
   const handleExplain = async () => {
     if (!selected) return
     setExplanationLoading(true)
+    setOperationError(null)
     try {
       const response = await requestJson<{ explanation: string; source: string }>(`/api/explain/${selected.alert_id}`)
       setExplanation(response.explanation)
       setExplanationSource(response.source)
+    } catch {
+      setOperationError('This alert is no longer available in the current capture.')
+      setSelected(null)
+      setExplanation(null)
+      setExplanationSource(null)
     } finally {
       setExplanationLoading(false)
     }
@@ -1310,10 +1337,10 @@ function App() {
 
   if (authStatus === 'loading') {
     return (
-      <main className="login-screen">
+      <main className="login-screen" suppressHydrationWarning>
         <div className="login-grid" />
         <div className="login-glow" />
-        <section className="login-card" style={{ textAlign: 'center', padding: '48px 32px' }}>
+        <section className="login-card" style={{ textAlign: 'center', padding: '48px 32px' }} suppressHydrationWarning>
           <div className="login-brand" style={{ justifyContent: 'center' }}>
             <Logo />
             <span>SIH<span className="cyan">26145</span></span>
@@ -1362,6 +1389,15 @@ function App() {
         </div>
 
         {content}
+
+        {operationError && (
+          <div className="operation-error" role="alert">
+            {operationError}
+            <button type="button" onClick={() => setOperationError(null)} aria-label="Dismiss error">
+              Dismiss
+            </button>
+          </div>
+        )}
 
         <footer>
           <span>

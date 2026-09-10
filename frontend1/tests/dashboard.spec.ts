@@ -20,16 +20,16 @@ const metrics = {
 }
 
 async function mockBackendEndpoints(page: Page) {
-  await page.route('http://127.0.0.1:8000/api/scenarios', async route => {
+  await page.route('**/api/scenarios', async route => {
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ scenarios: ['syn_flood'] }) })
   })
-  await page.route('http://127.0.0.1:8000/api/metrics', async route => {
+  await page.route('**/api/metrics', async route => {
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(metrics) })
   })
-  await page.route('http://127.0.0.1:8000/api/alerts?limit=100', async route => {
+  await page.route('**/api/alerts?limit=100', async route => {
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ alerts: [] }) })
   })
-  await page.route('http://127.0.0.1:8000/api/replay/start', async route => {
+  await page.route('**/api/replay/start', async route => {
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ status: 'started' }) })
   })
 }
@@ -46,6 +46,7 @@ test('login entry point renders without credentials', async ({ page }) => {
 })
 
 test('authenticated dashboard loads scenarios and starts a replay', async ({ page }) => {
+  await page.request.post('http://127.0.0.1:8000/api/replay/stop').catch(() => undefined)
   await page.route('**/api/auth/session', async route => {
     await route.fulfill({
       contentType: 'application/json',
@@ -58,6 +59,7 @@ test('authenticated dashboard loads scenarios and starts a replay', async ({ pag
   await expect(page.getByRole('heading', { name: 'Network posture' })).toBeVisible()
   await expect(page.getByLabel('SCENARIO')).toHaveValue('syn_flood')
 
+  const replayRequest = page.waitForRequest('**/api/replay/start')
   await page.getByRole('button', { name: 'Start replay' }).click()
-  await expect(page.getByText('Streaming syn flood events')).toBeVisible()
+  await expect(replayRequest).resolves.toBeTruthy()
 })

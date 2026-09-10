@@ -438,6 +438,28 @@ a {
   font: 10px monospace;
 }
 
+.operation-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 14px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  border-radius: 7px;
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.24);
+  font: 12px monospace;
+}
+
+.operation-error button {
+  border: 0;
+  color: #fecaca;
+  background: transparent;
+  font: inherit;
+  text-decoration: underline;
+}
+
 .replay-id {
   margin-left: auto;
   color: #53647c;
