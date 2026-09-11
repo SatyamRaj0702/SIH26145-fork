@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import queue
 import threading
+from collections import deque
 from collections.abc import Iterator
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -164,12 +165,27 @@ def capture_events(
         ) from exc
 
     events: queue.Queue[FlowEvent] = queue.Queue(maxsize=4096)
+    encrypted_flow_sizes: dict[tuple[str, str, int, int, str], deque[int]] = {}
     local_addresses = _local_addresses()
 
     def on_packet(packet: object) -> None:
         event = packet_to_event(packet, local_addresses)
         if event is None:
             return
+        flow_key = (
+            event.source_ip,
+            event.destination_ip,
+            event.source_port,
+            event.destination_port,
+            event.protocol,
+        )
+        is_encrypted = bool(event.tls_client_hello or event.tls_server_hello or event.quic_version)
+        if is_encrypted:
+            encrypted_flow_sizes.setdefault(flow_key, deque(maxlen=32))
+        if flow_key in encrypted_flow_sizes:
+            sizes = encrypted_flow_sizes[flow_key]
+            sizes.append(event.bytes)
+            event = event.model_copy(update={"tls_packet_sizes": list(sizes)})
         try:
             events.put_nowait(event)
         except queue.Full:
