@@ -11,8 +11,52 @@ import threading
 from collections.abc import Iterator
 from datetime import datetime, timezone
 from uuid import uuid4
+import hashlib
 
 from .schemas import FlowEvent
+
+
+def _tls_quic_metadata(packet: object, protocol: str) -> dict[str, object]:
+    """Derive handshake metadata transiently; never return or persist payload bytes."""
+    result: dict[str, object] = {
+        "tls_fingerprint": None,
+        "tls_version": None,
+        "tls_client_hello": False,
+        "tls_server_hello": False,
+        "quic_version": None,
+        "tls_packet_sizes": [],
+    }
+    if protocol == "TCP":
+        try:
+            from scapy.layers.tls.handshake import TLSClientHello, TLSServerHello
+            from scapy.layers.tls.record import TLS
+
+            if packet.haslayer(TLSClientHello):
+                hello = packet[TLSClientHello]
+                result["tls_client_hello"] = True
+                result["tls_version"] = str(getattr(hello, "version", None) or "unknown")
+                # JA3-style input uses handshake metadata only; values are not retained.
+                ciphers = ",".join(str(item) for item in (getattr(hello, "ciphers", None) or []))
+                extensions = ",".join(str(item) for item in (getattr(hello, "ext", None) or []))
+                result["tls_fingerprint"] = hashlib.md5(f"{result['tls_version']},{ciphers},{extensions}".encode(), usedforsecurity=False).hexdigest()
+            if packet.haslayer(TLSServerHello):
+                hello = packet[TLSServerHello]
+                result["tls_server_hello"] = True
+                result["tls_version"] = str(getattr(hello, "version", None) or result["tls_version"] or "unknown")
+            if packet.haslayer(TLS):
+                result["tls_packet_sizes"] = [len(packet)]
+        except (ImportError, IndexError, AttributeError, TypeError, ValueError):
+            pass
+    elif protocol == "UDP":
+        try:
+            transport = packet["UDP"]
+            raw = bytes(transport.payload)
+            if len(raw) >= 5 and raw[0] & 0x80:
+                result["quic_version"] = f"0x{int.from_bytes(raw[1:5], 'big'):08x}"
+                result["tls_packet_sizes"] = [len(packet)]
+        except (KeyError, IndexError, TypeError, ValueError):
+            pass
+    return result
 
 
 def _local_addresses() -> set[str]:
@@ -65,6 +109,8 @@ def packet_to_event(packet: object, local_addresses: set[str] | None = None) -> 
         source_port = int(transport.sport)
         destination_port = int(transport.dport)
 
+    encrypted = _tls_quic_metadata(packet, protocol)
+
     dns_query = None
     dns_record_type = None
     if packet.haslayer(DNS) and packet.haslayer(DNSQR):
@@ -99,6 +145,7 @@ def packet_to_event(packet: object, local_addresses: set[str] | None = None) -> 
         connection_completed=completed,
         dns_query=dns_query,
         dns_record_type=dns_record_type,
+        **encrypted,
     )
 
 

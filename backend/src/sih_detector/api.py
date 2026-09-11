@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from .appwrite import AppwriteAlertSink
 from .detectors import DetectionConfig, WindowedDetector
 from .explain import check_ollama, generate_explanation
+from .incidents import IncidentAggregator
 from .model import load_scorer
 from .replay import read_events, replay
 from .schemas import Alert
@@ -54,6 +55,7 @@ class ReplayManager:
         self._stop = threading.Event()
         self._subscribers: set[tuple[asyncio.AbstractEventLoop, asyncio.Queue[dict[str, Any]]]] = set()
         self.alerts: deque[Alert] = deque(maxlen=500)
+        self.incidents = IncidentAggregator()
         self.appwrite_sink = AppwriteAlertSink()
         self.ollama_status: dict[str, Any] = {
             "enabled": bool(os.getenv("OLLAMA_URL") or os.getenv("OLLAMA_MODEL")),
@@ -82,6 +84,7 @@ class ReplayManager:
                 "model_status": self.model_status,
                 "appwrite_status": self.appwrite_sink.status(),
                 "ollama_status": self.ollama_status,
+                "incidents_generated": 0,
             }
 
     def scenarios(self) -> list[str]:
@@ -99,6 +102,7 @@ class ReplayManager:
 
         self._stop.clear()
         self.alerts.clear()
+        self.incidents.clear()
         self.reset_metrics()
         self.metrics.update({"scenario": scenario, "status": "running", "running": True, "started_at": time.time()})
         self.metrics.update({"source_mode": "fixture", "interface": None})
@@ -116,6 +120,7 @@ class ReplayManager:
             raise RuntimeError("A replay or live capture is already running")
         self._stop.clear()
         self.alerts.clear()
+        self.incidents.clear()
         self.reset_metrics()
         self.metrics.update(
             {
@@ -201,7 +206,9 @@ class ReplayManager:
         def handle_alert(alert: Alert) -> None:
             with self._lock:
                 self.alerts.appendleft(alert)
+                incident = self.incidents.add(alert, self.metrics["data_provenance"])
                 self.metrics["alerts_generated"] += 1
+                self.metrics["incidents_generated"] = len(self.incidents.list(500))
                 threat_counts[alert.threat_class] += 1
                 self.metrics["threat_counts"] = dict(threat_counts)
             try:
@@ -211,6 +218,7 @@ class ReplayManager:
                     self.metrics["error_count"] += 1
                     self.metrics["last_error"] = f"Appwrite persistence failed: {exc}"
             self._broadcast({"type": "alert", "alert": alert.model_dump(mode="json")})
+            self._broadcast({"type": "incident", "incident": incident.model_dump(mode="json")})
             self._enqueue_explanation(alert)
 
         try:
@@ -296,6 +304,12 @@ def metrics() -> dict[str, Any]:
 def alerts(limit: int = 100) -> dict[str, list[dict[str, Any]]]:
     bounded_limit = max(1, min(limit, 500))
     return {"alerts": [alert.model_dump(mode="json") for alert in list(manager.alerts)[:bounded_limit]]}
+
+
+@app.get("/api/incidents")
+def incidents(limit: int = 100) -> dict[str, list[dict[str, Any]]]:
+    bounded_limit = max(1, min(limit, 500))
+    return {"incidents": [incident.model_dump(mode="json") for incident in manager.incidents.list(bounded_limit)]}
 
 
 @app.post("/api/replay/start")

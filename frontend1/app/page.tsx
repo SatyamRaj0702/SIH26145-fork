@@ -61,6 +61,22 @@ type BackendAlert = {
   explanation?: string | null
 }
 
+type BackendIncident = {
+  incident_id: string
+  threat_class: string
+  destination_ip: string
+  protocol: string
+  started_at: string
+  last_seen_at: string
+  window_seconds: number
+  alert_count: number
+  source_ips: string[]
+  max_confidence: number
+  severity: Severity
+  alert_ids: string[]
+  provenance: 'synthetic_fixture' | 'authorized_live_metadata'
+}
+
 type BackendMetrics = {
   processed_events: number
   alerts_generated: number
@@ -79,6 +95,7 @@ type BackendMetrics = {
   model_status: { available: boolean; version: string }
   appwrite_status: { enabled: boolean; persisted_count: number; last_error: string | null }
   ollama_status: { enabled: boolean; model: string; available: boolean }
+  incidents_generated?: number
   last_error?: string
 }
 
@@ -98,6 +115,7 @@ type AlertView = {
 
 type SocketMessage =
   | { type: 'alert'; alert: BackendAlert }
+  | { type: 'incident'; incident: BackendIncident }
   | { type: 'metrics'; metrics: BackendMetrics }
   | { type: 'explained'; alert_id: string; explanation: string; source: 'ollama' | 'template' | 'cached' }
 
@@ -227,6 +245,38 @@ function normalizeAlert(alert: BackendAlert): AlertView {
     reason: evidence?.reason ?? 'No evidence available',
     raw: alert,
   }
+}
+
+function IncidentTable({ incidents }: { incidents: BackendIncident[] }) {
+  return (
+    <section className="panel alerts-panel" style={{ marginBottom: '18px' }}>
+      <div className="panel-heading alerts-heading">
+        <div>
+          <span className="eyebrow">GROUPED INCIDENTS</span>
+          <h2>Active incident groups <span className="count-badge">{incidents.length}</span></h2>
+        </div>
+      </div>
+      <div className="table-scroll">
+        <table>
+          <thead><tr><th>SEVERITY</th><th>THREAT CLASS</th><th>SOURCES</th><th>DESTINATION</th><th>ALERTS</th><th>CONFIDENCE</th><th>LAST SEEN</th></tr></thead>
+          <tbody>
+            {incidents.map(incident => (
+              <tr key={incident.incident_id}>
+                <td><span className={`severity-badge ${severityTone(incident.severity)}`}><span />{severityLabel(incident.severity)}</span></td>
+                <td><strong>{humanizeThreat(incident.threat_class)}</strong><small>{incident.incident_id}</small></td>
+                <td className="mono">{incident.source_ips.length}</td>
+                <td className="mono">{incident.destination_ip} · {incident.protocol}</td>
+                <td className="mono">{incident.alert_count}</td>
+                <td className="mono">{Math.round(incident.max_confidence * 100)}%</td>
+                <td className="mono muted">{formatTimestamp(incident.last_seen_at)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!incidents.length && <div className="empty-state"><strong>No grouped incidents</strong><span>Waiting for authorized metadata.</span></div>}
+      </div>
+    </section>
+  )
 }
 
 function Logo() {
@@ -1143,6 +1193,7 @@ function App() {
   const [speed, setSpeed] = useState<ReplaySpeed>(1)
   const [liveInterface, setLiveInterface] = useState('')
   const [alerts, setAlerts] = useState<AlertView[]>([])
+  const [incidents, setIncidents] = useState<BackendIncident[]>([])
   const [selected, setSelected] = useState<AlertView | null>(null)
   const [explanation, setExplanation] = useState<string | null>(null)
   const [explanationSource, setExplanationSource] = useState<string | null>(null)
@@ -1163,10 +1214,11 @@ function App() {
 
     async function load() {
       try {
-        const [scenarioResponse, metricsResponse, alertResponse] = await Promise.all([
+        const [scenarioResponse, metricsResponse, alertResponse, incidentResponse] = await Promise.all([
           requestJson<{ scenarios: string[] }>('/api/scenarios'),
           requestJson<BackendMetrics>('/api/metrics'),
           requestJson<{ alerts: BackendAlert[] }>('/api/alerts?limit=100'),
+          requestJson<{ incidents: BackendIncident[] }>('/api/incidents?limit=100'),
         ])
 
         if (cancelled) return
@@ -1174,6 +1226,7 @@ function App() {
         setScenarios(scenarioResponse.scenarios)
         setMetrics(metricsResponse)
         setAlerts(alertResponse.alerts.map(normalizeAlert))
+        setIncidents(incidentResponse.incidents)
         setSelectedScenario(metricsResponse.scenario ?? scenarioResponse.scenarios[0] ?? '')
         setConnectionState('connected')
       } catch (error) {
@@ -1212,6 +1265,10 @@ function App() {
       if (message.type === 'alert') {
         const alert = normalizeAlert(message.alert)
         setAlerts(current => [alert, ...current.filter(item => item.alert_id !== alert.alert_id)])
+      }
+
+      if (message.type === 'incident') {
+        setIncidents(current => [message.incident, ...current.filter(item => item.incident_id !== message.incident.incident_id)])
       }
 
       if (message.type === 'explained') {
@@ -1305,7 +1362,7 @@ function App() {
 
   const content = useMemo(() => {
     if (tab === 'Alerts') {
-      return <AlertsTable alerts={alerts} onSelect={setSelected} />
+      return <><IncidentTable incidents={incidents} /><AlertsTable alerts={alerts} onSelect={setSelected} /></>
     }
 
     if (tab === 'Analytics') {
@@ -1345,10 +1402,11 @@ function App() {
           <ThreatDistribution alerts={alerts} />
         </div>
 
+        <IncidentTable incidents={incidents} />
         <AlertsTable alerts={alerts} onSelect={setSelected} />
       </>
     )
-  }, [alerts, handleStart, handleStop, metrics, selectedScenario, speed, tab, scenarios])
+  }, [alerts, handleStart, handleStop, incidents, metrics, selectedScenario, speed, tab, scenarios])
 
   if (authStatus === 'loading') {
     return (

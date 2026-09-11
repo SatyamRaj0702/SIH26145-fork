@@ -49,6 +49,9 @@ class FlowEvent(BaseModel):
     dns_record_type: str | None = None
     tls_fingerprint: str | None = None
     tls_version: str | None = None
+    tls_client_hello: bool = False
+    tls_server_hello: bool = False
+    quic_version: str | None = None
     tls_packet_sizes: list[int] = Field(default_factory=list)
 
     @field_validator("timestamp")
@@ -86,6 +89,31 @@ class Alert(BaseModel):
     @field_validator("timestamp")
     @classmethod
     def normalize_timestamp(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+
+class Incident(BaseModel):
+    """A time-windowed group of alerts for the same threat destination."""
+
+    incident_id: str = Field(min_length=1)
+    threat_class: ThreatClass
+    destination_ip: str = Field(min_length=1)
+    protocol: str = Field(min_length=1)
+    started_at: datetime
+    last_seen_at: datetime
+    window_seconds: int = Field(gt=0)
+    alert_count: int = Field(ge=1)
+    source_ips: list[str] = Field(min_length=1)
+    max_confidence: float = Field(ge=0, le=1)
+    severity: Severity
+    alert_ids: list[str] = Field(min_length=1)
+    provenance: Literal["synthetic_fixture", "authorized_live_metadata"]
+
+    @field_validator("started_at", "last_seen_at")
+    @classmethod
+    def normalize_incident_timestamp(cls, value: datetime) -> datetime:
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
